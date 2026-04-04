@@ -1,2 +1,2 @@
 # tcc-usando-lvlms-deteccao-combate-incendio
-Repositório contendo os testes, desenvolvimento e documentação dos modelos utilizados na tese de conclusão apresentado junto à banca da UFT.
+Devido à localização do Tocantins, com a presença da Amazônia - uma regiao de grandes queimadas, e do Cerrado - um dos biomas com maior dificuldade de restauração, torna-se gritante a necessidade da criação e implementação de ferramentas que detectem os focos em seu início. Assim, seria possível evitar os grandes prejuizos financeiros, ambientais e para a saude. A utilizaçao de sistemas inteligentes, como por exemplo drones e UAVs, torna possivel antever e eliminar fogos de incendio com alta eficiencia
