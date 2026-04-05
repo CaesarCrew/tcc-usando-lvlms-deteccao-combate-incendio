@@ -97,11 +97,11 @@ def write_model(model_path, input_base_path, model_size):
     if model_size == "7B":
         # Not shared
         # (The sharded implementation would also work, but this is simpler.)
-        loaded = torch.load(os.path.join(input_base_path, "consolidated.00.pth"), map_location="cpu")
+        loaded = torch.load(os.path.join(input_base_path, "consolidated.00.pth"), map_location="cpu") #or cuda:0
     else:
         # Sharded
         loaded = [
-            torch.load(os.path.join(input_base_path, f"consolidated.{i:02d}.pth"), map_location="cpu")
+            torch.load(os.path.join(input_base_path, f"consolidated.{i:02d}.pth"), map_location="cpu") #or cuda:0
             for i in range(num_shards)
         ]
     param_count = 0

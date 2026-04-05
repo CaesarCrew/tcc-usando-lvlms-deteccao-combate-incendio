@@ -38,9 +38,9 @@ def evaluation(model, data_loader, device, config):
     for n, (idx, vision_input, input_ids, input_atts) in enumerate(data_loader):
         vision_input = vision_input.to(device, non_blocking=True)
         input_ids = input_ids[:, -128:]
-        input_ids = input_ids.to(device)
+        #input_ids = input_ids.to(device)
         input_atts = input_atts[:, -128:]
-        input_atts = input_atts.to(device).half()
+        #input_atts = input_atts.to(device).half()
 
         with torch.amp.autocast('cuda'):
             text_outputs = model.generate(
@@ -65,7 +65,7 @@ def evaluation(model, data_loader, device, config):
 
 def main(args, config):
     print("### Evaluating", flush=True)
-    device = torch.device(args.device)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     seed = args.seed + utils.get_rank()
     torch.manual_seed(seed)
@@ -79,9 +79,9 @@ def main(args, config):
     print("### Creating model", flush=True)
     from models.lynx import LynxBase
     model = LynxBase(config=config, freeze_vit=config['freeze_vit'], freeze_llm=config['freeze_llm'], load_bridge=False)
-    model = model.to(device).half()
-    model.LLM = model.LLM.to("cpu")
-    #model.vision_encoder = model.vision_encoder.to(device)
+    model.vision_encoder = model.vision_encoder.to(device).half()
+    model.bridge = model.bridge.to(device).half()
+    model.LLM = model.LLM.to("cpu").float()
 
     for _, param in model.named_parameters():
         param.requires_grad = False

@@ -223,7 +223,7 @@ class LynxBase(nn.Module):
         Load Pre-trained 
         """
         print('### load params from: ', ckpt_rpath, flush=True)
-        state_dict = torch.load(ckpt_rpath, map_location='cpu')
+        state_dict = torch.load(ckpt_rpath, map_location='cpu') #'cuda:0'
         state_dict = state_dict['model'] if 'model' in state_dict.keys() else state_dict
 
         state_dict = {k.lstrip("model."): v for k, v in state_dict.items()}
@@ -337,12 +337,18 @@ class LynxBase(nn.Module):
                  use_nucleus_sampling=False, num_beams=5, max_new_tokens=64, min_length=2, top_p=0.9, top_k=3,
                  repetition_penalty=1.0, no_repeat_ngram_size=3,
                  length_penalty=1.0, num_return_sequences=1, temperature=1, apply_lemmatizer=False):
+        input_ids = input_ids.to("cpu")
+        input_atts = input_atts.to("cpu")
         text_embeds = self.embed_tokens(input_ids)
 
         if vision_input is not None:
+            vision_input = vision_input.to("cuda").half()
             vision_embeds, vision_atts = self.get_vision_embeds(vision_input)
             v2t_feats, v2t_atts = self.bridge(vision_embeds=vision_embeds, vision_atts=vision_atts)
 
+            v2t_feats = v2t_feats.to("cpu", dtype=text_embeds.dtype)
+            v2t_atts = v2t_atts.to("cpu")
+            
             inputs_embeds = torch.cat([v2t_feats, text_embeds], dim=1)
             attention_mask = torch.cat([v2t_atts, input_atts], dim=1)
 

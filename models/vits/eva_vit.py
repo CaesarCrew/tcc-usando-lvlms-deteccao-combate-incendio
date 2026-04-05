@@ -518,7 +518,7 @@ def create_eva_vit_g(img_size=224, drop_path_rate=0.4, load_params=True, use_che
     msg = None
     if load_params:
         assert os.path.exists("data/eva_vit_g.pth")
-        state_dict = torch.load("data/eva_vit_g.pth", map_location="cpu")
+        state_dict = torch.load("data/eva_vit_g.pth", map_location="cpu") #or cuda:0
         interpolate_pos_embed(model, state_dict)
 
         # rename for StableAttention
