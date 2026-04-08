@@ -81,7 +81,7 @@ def main(args, config):
     model = LynxBase(config=config, freeze_vit=config['freeze_vit'], freeze_llm=config['freeze_llm'], load_bridge=False)
     model.vision_encoder = model.vision_encoder.to(device).half()
     model.bridge = model.bridge.to(device).half()
-    model.LLM = model.LLM.to("cpu").float()
+    model.LLM = model.LLM.to("cpu")#.float()
 
     for _, param in model.named_parameters():
         param.requires_grad = False

@@ -342,7 +342,7 @@ class LynxBase(nn.Module):
         text_embeds = self.embed_tokens(input_ids)
 
         if vision_input is not None:
-            vision_input = vision_input.to("cuda").half()
+            #vision_input = vision_input.to("cuda").half()
             vision_embeds, vision_atts = self.get_vision_embeds(vision_input)
             v2t_feats, v2t_atts = self.bridge(vision_embeds=vision_embeds, vision_atts=vision_atts)
 
