@@ -40,7 +40,7 @@ def evaluation(model, data_loader, device, config):
         input_ids = input_ids[:, -128:]
         #input_ids = input_ids.to(device)
         input_atts = input_atts[:, -128:]
-        #input_atts = input_atts.to(device).half()
+        input_atts = input_atts.to(device)#.half()
 
         with torch.amp.autocast('cuda'):
             text_outputs = model.generate(
