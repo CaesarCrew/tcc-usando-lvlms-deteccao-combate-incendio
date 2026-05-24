@@ -13,7 +13,7 @@
 # limitations under the License.
 
 ## Data
-image_rdir: "./images/"
+image_rdir: "../Images/"
 
 # put your test file in jsonl format
 test_files: [ "./data/Open_VQA_images.jsonl" ]

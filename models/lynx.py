@@ -24,7 +24,7 @@ from timm.models.layers import trunc_normal_
 
 from dataset.tokenizers import build_tokenizer
 
-from .vits.eva_vit import interpolate_pos_embed
+#from .vits.eva_vit import interpolate_pos_embed
 
 
 class AllGather(torch.autograd.Function):
@@ -228,11 +228,7 @@ class LynxBase(nn.Module):
 
         state_dict = {k.lstrip("model."): v for k, v in state_dict.items()}
 
-        interpolate_pos_embed(
-            self.vision_encoder,
-            state_dict,
-            pos_embed_name="vision_encoder.pos_embed"
-        )
+        #interpolate_pos_embed(self.vision_encoder,state_dict,pos_embed_name="vision_encoder.pos_embed")
 
         msg = self.load_state_dict(state_dict, strict=False)
 
