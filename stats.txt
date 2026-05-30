@@ -6,3 +6,12 @@ Fold 3/5 metrics: accuracy=0.4286, f1_fire=0.3333, f1_nofire=0.5000, f1_macro=0.
 Fold 4/5 metrics: accuracy=0.6154, f1_fire=0.5455, f1_nofire=0.6667, f1_macro=0.6061
 Fold 5/5 metrics: accuracy=0.6154, f1_fire=0.5455, f1_nofire=0.6667, f1_macro=0.6061Time 0:16:57
 Times per fold ['0:03:31', '0:03:31', '0:03:31', '0:03:10', '0:03:12']
+
+File used: ['./data/Open_VQA_images.jsonl'] 
+Images per fold: 14
+Fold 1/5 metrics: accuracy=0.6429, f1_fire=0.6154, f1_nofire=0.6667, f1_macro=0.6410
+Fold 2/5 metrics: accuracy=0.8571, f1_fire=0.9000, f1_nofire=0.7500, f1_macro=0.8250
+Fold 3/5 metrics: accuracy=0.4286, f1_fire=0.3333, f1_nofire=0.5000, f1_macro=0.4167
+Fold 4/5 metrics: accuracy=0.6154, f1_fire=0.5455, f1_nofire=0.6667, f1_macro=0.6061
+Fold 5/5 metrics: accuracy=0.6154, f1_fire=0.5455, f1_nofire=0.6667, f1_macro=0.6061Time 0:18:17
+Times per fold ['0:03:42', '0:04:00', '0:03:48', '0:03:25', '0:03:22']

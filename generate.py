@@ -261,7 +261,7 @@ def main(args, config):
     total_time = time.time() - start_time
     total_time_str = 'Time {}'.format(str(dt.timedelta(seconds=int(total_time))))
     per_fold_times = 'Times per fold {}'.format(per_fold_times)
-    prediction_test_data = prediction_test_data + total_time_str + '\n' + per_fold_times
+    prediction_test_data = prediction_test_data + total_time_str + '\n' + per_fold_times + '\n'
 
     # Save combined
     current_datetime = datetime.now()
