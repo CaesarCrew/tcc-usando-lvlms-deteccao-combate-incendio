@@ -17,17 +17,18 @@ from ruamel.yaml import YAML
 import numpy as np
 import random
 import time
-import datetime
+import datetime as dt
 import json
 import re
 from pathlib import Path
+from datetime import datetime
 
 import torch
 import torch.backends.cudnn as cudnn
 from torch.utils.data import Subset
 
 import utils
-from utils import write_jsonl
+from utils import write_jsonl, write_txt_doc
 from dataset import create_dataset, create_loader
 
 torch.set_default_dtype(torch.float16)
@@ -72,6 +73,12 @@ def make_k_folds(n, k, seed=123, shuffle=True):
         rng.shuffle(indices)
     folds = np.array_split(indices, k)  # nearly equal sizes
     return folds
+
+def save_per_fold(fold_preds, output_path):
+    fold_out = output_path.replace(".jsonl", f"_fold{fold_i}.jsonl")
+    write_jsonl(fold_preds, fold_out)
+    print("### Fold results saved to:", fold_out, flush=True)
+    return fold_out
 
 
 def extract_binary_class_from_rpath(rpath):
@@ -163,7 +170,6 @@ def main(args, config):
     cudnn.benchmark = True
 
     print("config:", json.dumps(config), flush=True)
-    print("output_path, ", args.output_path, flush=True)
 
     print("### Creating model", flush=True)
     from models.lynx import LynxBase
@@ -196,9 +202,12 @@ def main(args, config):
     all_predictions = []
     per_fold_paths = []
     per_fold_times = []
+    prediction_test_data = ''
 
     for fold_i, fold_indices in enumerate(folds):
         print(f"### Fold {fold_i+1}/{k}: n={len(fold_indices)}", flush=True)
+        if fold_i == 0:
+            prediction_test_data = 'Images per fold: ' + str(len(fold_indices))
 
         fold_ds = Subset(test_dataset, fold_indices.tolist())
         fold_annotations = [test_dataset.data[i] for i in fold_indices.tolist()]
@@ -211,7 +220,7 @@ def main(args, config):
         start_time_fold = time.time()
         fold_preds = evaluation(model, fold_loader, device, config)
         fold_time = time.time() - start_time_fold
-        fold_time_str = str(datetime.timedelta(seconds=int(fold_time)))
+        fold_time_str = str(dt.timedelta(seconds=int(fold_time)))
         per_fold_times.append(fold_time_str)
 
         fold_targets = []
@@ -226,48 +235,50 @@ def main(args, config):
             pred["image_path"] = ann["image"]
 
         fold_metrics = compute_binary_metrics(fold_targets, fold_predictions)
-        print(
-            "### Fold {}/{} metrics: accuracy={:.4f}, f1_fire={:.4f}, f1_nofire={:.4f}, f1_macro={:.4f}".format(
+        fold_metrics_i = "Fold {}/{} metrics: accuracy={:.4f}, f1_fire={:.4f}, f1_nofire={:.4f}, f1_macro={:.4f}".format(
                 fold_i + 1,
                 k,
                 fold_metrics["accuracy"],
                 fold_metrics["f1_fire"],
                 fold_metrics["f1_nofire"],
                 fold_metrics["f1_macro"],
-            ),
-            flush=True,
-        )
+            )
+        print(f"###{fold_metrics_i}", flush=True)
+        prediction_test_data = prediction_test_data + '\n' +  fold_metrics_i
 
         # tag fold id
         for p in fold_preds:
             p["fold"] = fold_i
 
         all_predictions.extend(fold_preds)
-
         if args.save_per_fold:
-            fold_out = args.output_path.replace(".jsonl", f"_fold{fold_i}.jsonl")
-            write_jsonl(fold_preds, fold_out)
-            per_fold_paths.append(fold_out)
-            print("### Fold results saved to:", fold_out, flush=True)
+            per_fold_paths.append(save_per_fold(fold_preds, output_path))
+
 
         # To prevent GPU memory issues, we can clear the model and empty cache after each fold
         torch.cuda.empty_cache()
     
     total_time = time.time() - start_time
-    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+    total_time_str = 'Time {}'.format(str(dt.timedelta(seconds=int(total_time))))
+    per_fold_times = 'Times per fold {}'.format(per_fold_times)
+    prediction_test_data = prediction_test_data + total_time_str + '\n' + per_fold_times
 
     # Save combined
-    write_jsonl(all_predictions, args.output_path)
-    print("### Combined prediction results saved to:", args.output_path, flush=True)
+    current_datetime = datetime.now()
+    new_output_path = './' + str(current_datetime.day) + "_" + str(current_datetime.month) + "-" + str(current_datetime.hour) + "_" + str(current_datetime.minute) + '.jsonl'
+    write_jsonl(all_predictions, new_output_path)
+    print("### Combined prediction results saved to:", new_output_path, flush=True)
+    write_txt_doc(config['test_files'], prediction_test_data, args.output_path)
+    print("### Data of the prediction saved to:", args.output_path, flush=True)
 
-    print('### Time {}'.format(total_time_str))
-    print('### Times per fold {}'.format(per_fold_times))
+    print(f'### {total_time_str}')
+    print(f'###{per_fold_times}')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True)
-    parser.add_argument('--output_path', type=str, required=True, help="path of outputfile")
+    parser.add_argument('--output_path', type=str, help="path of outputfile")
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--k_folds', default=5, type=int)

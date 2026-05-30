@@ -3,6 +3,6 @@
 
 python3 generate.py \
 --config "configs/LYNX.yaml" \
---output_path "./result_0.jsonl" \
+--output_path "./stats.txt" \
 --device "cuda" \
---seed 42
+--k_folds 10

@@ -89,6 +89,11 @@ def write_jsonl(data, wpath):
         for sample in data:
             f.write(json.dumps(sample)+'\n')
 
+def write_txt_doc(test_file, data, wpath):
+    with open(wpath, 'a') as f:
+        f.write(f'File used: {test_file} \n')
+        f.write(data)
+
 
 def update_config(config, override_cfg_str=""):
     if override_cfg_str != "":
