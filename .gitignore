@@ -13,5 +13,6 @@ data/finetune_lynx.pt
 .data/finetune_lynx.pt
 finetune_lynx.pt
 
-result_0.jsonl
+./*.jsonl
+stats.txt
 */__pycache__/

@@ -94,6 +94,13 @@ def write_txt_doc(test_file, data, wpath):
         f.write(f'File used: {test_file} \n')
         f.write(data)
 
+def write_jsonl_per_fold(fold_preds, output_path):
+    fold_out = output_path.replace(".jsonl", f"_fold{fold_i}.jsonl")
+    write_jsonl(fold_preds, fold_out)
+    print("### Fold results saved to:", fold_out, flush=True)
+    return fold_out
+
+
 
 def update_config(config, override_cfg_str=""):
     if override_cfg_str != "":

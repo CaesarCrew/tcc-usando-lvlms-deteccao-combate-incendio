@@ -19,16 +19,14 @@ import random
 import time
 import datetime as dt
 import json
-import re
-from pathlib import Path
 from datetime import datetime
 
 import torch
 import torch.backends.cudnn as cudnn
-from torch.utils.data import Subset
 
-import utils
-from utils import write_jsonl, write_txt_doc
+from utils import write_jsonl, write_txt_doc, get_rank
+from k_folds import make_cross_validation
+from calculate_metrics import process_metrics
 from dataset import create_dataset, create_loader
 
 torch.set_default_dtype(torch.float16)
@@ -66,110 +64,18 @@ def evaluation(model, data_loader, device, config):
 
     return result
 
-def make_k_folds(n, k, seed=123, shuffle=True):
-    rng = np.random.default_rng(seed)
-    indices = np.arange(n)
-    if shuffle:
-        rng.shuffle(indices)
-    folds = np.array_split(indices, k)  # nearly equal sizes
-    return folds
-
-def save_per_fold(fold_preds, output_path):
-    fold_out = output_path.replace(".jsonl", f"_fold{fold_i}.jsonl")
-    write_jsonl(fold_preds, fold_out)
-    print("### Fold results saved to:", fold_out, flush=True)
-    return fold_out
-
-
-def extract_binary_class_from_rpath(rpath):
-    parts = Path(rpath).parts
-    if "nofire" in parts:
-        return "nofire"
-    if "fire" in parts:
-        return "fire"
-    raise ValueError(f"Could not infer class from rpath: {rpath}")
-
-
-def predict_binary_class(text_output):
-    text = text_output.strip().lower()
-    lead_text = text.lstrip(", ")
-
-    if re.match(r"^(no|nope|nah)\b", lead_text):
-        return "nofire"
-    if re.match(r"^yes\b", lead_text):
-        return "fire"
-
-    nofire_patterns = [
-        r"\bno fire\b",
-        r"\bnofire\b",
-        r"\bno flames?\b",
-        r"\bno burning\b",
-        r"\bno wildfire\b",
-        r"\bno signs? of fire\b",
-        r"\bnot a fire\b",
-    ]
-    fire_patterns = [
-        r"\byes\b",
-        r"\bfire\b",
-        r"\bflames?\b",
-        r"\bwildfire\b",
-        r"\bblaze\b",
-        r"\bburning\b",
-        r"\bsmoke\b",
-    ]
-
-    if any(re.search(pattern, text) for pattern in nofire_patterns):
-        return "nofire"
-    if any(re.search(pattern, text) for pattern in fire_patterns):
-        return "fire"
-
-    # Fall back to the first token so short answers like "no"/"yes" still work.
-    first_token = re.sub(r"^[^a-z]+|[^a-z]+$", "", lead_text.split(maxsplit=1)[0]) if text else ""
-    if first_token in {"no", "nope"}:
-        return "nofire"
-    else:
-        return "fire"
-    
-    return "no answer"
-
-
-def compute_binary_metrics(targets, predictions):
-    assert len(targets) == len(predictions)
-
-    total = len(targets)
-    correct = sum(t == p for t, p in zip(targets, predictions))
-    accuracy = correct / total if total else 0.0
-
-    def class_f1(positive_class):
-        tp = sum((t == positive_class) and (p == positive_class) for t, p in zip(targets, predictions))
-        fp = sum((t != positive_class) and (p == positive_class) for t, p in zip(targets, predictions))
-        fn = sum((t == positive_class) and (p != positive_class) for t, p in zip(targets, predictions))
-
-        precision = tp / (tp + fp) if (tp + fp) else 0.0
-        recall = tp / (tp + fn) if (tp + fn) else 0.0
-        return (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
-
-    f1_fire = class_f1("fire")
-    f1_nofire = class_f1("nofire")
-
-    return {
-        "accuracy": accuracy,
-        "f1_fire": f1_fire,
-        "f1_nofire": f1_nofire,
-        "f1_macro": (f1_fire + f1_nofire) / 2 if total else 0.0,
-    }
 
 def main(args, config):
     print("### Evaluating", flush=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    seed = args.seed + utils.get_rank()
+    seed = args.seed + get_rank()
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
     cudnn.benchmark = True
 
-    print("config:", json.dumps(config), flush=True)
+    #print("config:", json.dumps(config), flush=True)
 
     print("### Creating model", flush=True)
     from models.lynx import LynxBase
@@ -188,91 +94,43 @@ def main(args, config):
     print("### Creating datasets", flush=True)
     test_dataset = create_dataset('eval', config)
 
-    print("### Setting up k-fold cross-validation", flush=True)
-    n = len(test_dataset)
-    k = 5
-    assert k >= 2, "k_folds must be >= 2"
-    assert k <= n, f"k_folds must be <= dataset size (n={n})"
+    #prediction_test_data = ''
+    #total_time_str = ''
 
-    folds = make_k_folds(n=n, k=k, seed=args.fold_seed, shuffle=True)
+    if args.cross_val:
+        k = args.k_folds
+        assert k >= 2, "k_folds must be >= 2"
+        predictions, total_time_str, per_fold_times, prediction_test_data = make_cross_validation(test_dataset, model, device, config, k, args.fold_seed, args.save_per_fold)
+    else:
+        start_time = time.time()
+        print("### Start evaluating", flush=True)
+        test_loader = create_loader([test_dataset], batch_size=[config['batch_size_test']], num_workers=[4],collate_fns=[test_dataset.collate_fn])[0]
+        predictions = evaluation(model, test_loader, device, config)
 
-    start_time = time.time()
-    print(f"### Start {k}-fold evaluating (outcome CV)", flush=True)
-
-    all_predictions = []
-    per_fold_paths = []
-    per_fold_times = []
-    prediction_test_data = ''
-
-    for fold_i, fold_indices in enumerate(folds):
-        print(f"### Fold {fold_i+1}/{k}: n={len(fold_indices)}", flush=True)
-        if fold_i == 0:
-            prediction_test_data = 'Images per fold: ' + str(len(fold_indices))
-
-        fold_ds = Subset(test_dataset, fold_indices.tolist())
-        fold_annotations = [test_dataset.data[i] for i in fold_indices.tolist()]
-
-        fold_loader = create_loader([fold_ds],
-                                    batch_size=[config['batch_size_test']],
-                                    num_workers=[4],
-                                    collate_fns=[test_dataset.collate_fn])[0]
+        total_time = time.time() - start_time
+        total_time_str = str(dt.timedelta(seconds=int(total_time)))
         
-        start_time_fold = time.time()
-        fold_preds = evaluation(model, fold_loader, device, config)
-        fold_time = time.time() - start_time_fold
-        fold_time_str = str(dt.timedelta(seconds=int(fold_time)))
-        per_fold_times.append(fold_time_str)
+        fold_annotations = [test_dataset.data[i] for i in range(len(test_dataset))]
+        metrics = process_metrics(fold_annotations, predictions)
 
-        fold_targets = []
-        fold_predictions = []
-        for ann, pred in zip(fold_annotations, fold_preds):
-            target_class = extract_binary_class_from_rpath(ann["image"])
-            predicted_class = predict_binary_class(pred["text_output"])
-            fold_targets.append(target_class)
-            fold_predictions.append(predicted_class)
-            pred["target_class"] = target_class
-            pred["predicted_class"] = predicted_class
-            pred["image_path"] = ann["image"]
-
-        fold_metrics = compute_binary_metrics(fold_targets, fold_predictions)
-        fold_metrics_i = "Fold {}/{} metrics: accuracy={:.4f}, f1_fire={:.4f}, f1_nofire={:.4f}, f1_macro={:.4f}".format(
-                fold_i + 1,
-                k,
-                fold_metrics["accuracy"],
-                fold_metrics["f1_fire"],
-                fold_metrics["f1_nofire"],
-                fold_metrics["f1_macro"],
+        metrics_i = "Test metrics: accuracy={:.4f}, f1_fire={:.4f}, f1_nofire={:.4f}, f1_macro={:.4f}".format(
+                metrics["accuracy"],
+                metrics["f1_fire"],
+                metrics["f1_nofire"],
+                metrics["f1_macro"],
             )
-        print(f"###{fold_metrics_i}", flush=True)
-        prediction_test_data = prediction_test_data + '\n' +  fold_metrics_i
-
-        # tag fold id
-        for p in fold_preds:
-            p["fold"] = fold_i
-
-        all_predictions.extend(fold_preds)
-        if args.save_per_fold:
-            per_fold_paths.append(save_per_fold(fold_preds, output_path))
-
-
-        # To prevent GPU memory issues, we can clear the model and empty cache after each fold
-        torch.cuda.empty_cache()
-    
-    total_time = time.time() - start_time
-    total_time_str = 'Time {}'.format(str(dt.timedelta(seconds=int(total_time))))
-    per_fold_times = 'Times per fold {}'.format(per_fold_times)
-    prediction_test_data = prediction_test_data + total_time_str + '\n' + per_fold_times + '\n'
+        print(f"###{metrics_i}", flush=True)
+        prediction_test_data = 'Number of images: ' + str(len(test_dataset)) + '\n' + metrics_i
 
     # Save combined
     current_datetime = datetime.now()
     new_output_path = './' + str(current_datetime.day) + "_" + str(current_datetime.month) + "-" + str(current_datetime.hour) + "_" + str(current_datetime.minute) + '.jsonl'
-    write_jsonl(all_predictions, new_output_path)
+    write_jsonl(predictions, new_output_path)
     print("### Combined prediction results saved to:", new_output_path, flush=True)
     write_txt_doc(config['test_files'], prediction_test_data, args.output_path)
     print("### Data of the prediction saved to:", args.output_path, flush=True)
 
-    print(f'### {total_time_str}')
-    print(f'###{per_fold_times}')
+    print(f'### {total_time_str}' if args.cross_val else f'### {total_time_str} \n ### {per_fold_times}', flush=True)
 
 
 if __name__ == '__main__':
@@ -281,6 +139,8 @@ if __name__ == '__main__':
     parser.add_argument('--output_path', type=str, help="path of outputfile")
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--seed', default=42, type=int)
+    parser.add_argument('--cross_val', action='store_true')
+
     parser.add_argument('--k_folds', default=5, type=int)
     parser.add_argument('--fold_seed', default=123, type=int)
     parser.add_argument('--save_per_fold', action='store_true')

@@ -4,5 +4,4 @@
 python3 generate.py \
 --config "configs/LYNX.yaml" \
 --output_path "./stats.txt" \
---device "cuda" \
---k_folds 10
+--device "cuda"
