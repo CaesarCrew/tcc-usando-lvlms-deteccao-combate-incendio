@@ -1,18 +1,14 @@
 __pycache__/
 .idea/
 .DS_Store
-.images/
 images/
-.data/vicuna-7b/
 data/vicuna-7b/
 
 data/eva_vit_g.pth
-.data/eva_vit_g.pth
 eva_vit_g.pth
 data/finetune_lynx.pt
-.data/finetune_lynx.pt
 finetune_lynx.pt
 
-./*.jsonl
+*.jsonl
 stats.txt
 */__pycache__/

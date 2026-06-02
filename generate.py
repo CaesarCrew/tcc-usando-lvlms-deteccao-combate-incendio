@@ -127,7 +127,7 @@ def main(args, config):
     new_output_path = './' + str(current_datetime.day) + "_" + str(current_datetime.month) + "-" + str(current_datetime.hour) + "_" + str(current_datetime.minute) + '.jsonl'
     write_jsonl(predictions, new_output_path)
     print("### Combined prediction results saved to:", new_output_path, flush=True)
-    write_txt_doc(config['test_files'], prediction_test_data, args.output_path)
+    write_txt_doc(config['test_files'], prediction_test_data, args.output_path, new_output_path)
     print("### Data of the prediction saved to:", args.output_path, flush=True)
 
     print(f'### {total_time_str}' if args.cross_val else f'### {total_time_str} \n ### {per_fold_times}', flush=True)

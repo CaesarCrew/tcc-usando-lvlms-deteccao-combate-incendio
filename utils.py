@@ -89,9 +89,9 @@ def write_jsonl(data, wpath):
         for sample in data:
             f.write(json.dumps(sample)+'\n')
 
-def write_txt_doc(test_file, data, wpath):
+def write_txt_doc(test_file, data, wpath, file):
     with open(wpath, 'a') as f:
-        f.write(f'File used: {test_file} \n')
+        f.write(f'File used: {test_file} Output: {file}\n')
         f.write(data)
 
 def write_jsonl_per_fold(fold_preds, output_path):

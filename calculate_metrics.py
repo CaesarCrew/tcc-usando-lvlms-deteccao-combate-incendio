@@ -79,7 +79,8 @@ def process_metrics(annotations, predictions):
     targets = []
     predictions_format = []
     for ann, pred in zip(annotations, predictions):
-        target_class = extract_class(ann["answer"])
+        print(f"Verify: {ann} \n")
+        target_class = extract_class(ann["answer"][0])
         predicted_class = predict_binary_class(pred["text_output"])
         targets.append(target_class)
         predictions_format.append(predicted_class)
@@ -87,4 +88,7 @@ def process_metrics(annotations, predictions):
         pred["predicted_class"] = predicted_class
         pred["image_path"] = ann["image"]
     
-    return compute_binary_metrics(targets, predictions_format)
+    print(f"Targets: {targets} \n")
+    #print(f"Predictions: {predictions_format} \n")
+    metrics = compute_binary_metrics(targets, predictions_format)
+    return metrics
