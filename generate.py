@@ -118,6 +118,8 @@ def main(args, config):
                 metrics["f1_fire"],
                 metrics["f1_nofire"],
                 metrics["f1_macro"],
+                metrics["mcc_fire"],
+                metrics["mcc_nofire"]
             )
         print(f"###{metrics_i}", flush=True)
         prediction_test_data = 'Number of images: ' + str(len(test_dataset)) + '\n' + metrics_i
@@ -127,7 +129,7 @@ def main(args, config):
     new_output_path = './' + str(current_datetime.day) + "_" + str(current_datetime.month) + "-" + str(current_datetime.hour) + "_" + str(current_datetime.minute) + '.jsonl'
     write_jsonl(predictions, new_output_path)
     print("### Combined prediction results saved to:", new_output_path, flush=True)
-    write_txt_doc(config['test_files'], prediction_test_data, args.output_path, new_output_path)
+    write_txt_doc(config['test_files'], prediction_test_data, args.output_path, args.fold_seed if args.cross_val else args.seed, new_output_path)
     print("### Data of the prediction saved to:", args.output_path, flush=True)
 
     print(f'### {total_time_str}' if args.cross_val else f'### {total_time_str} \n ### {per_fold_times}', flush=True)
@@ -139,8 +141,8 @@ if __name__ == '__main__':
     parser.add_argument('--output_path', type=str, help="path of outputfile")
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--seed', default=42, type=int)
-    parser.add_argument('--cross_val', action='store_true')
 
+    parser.add_argument('--cross_val', action='store_true')
     parser.add_argument('--k_folds', default=5, type=int)
     parser.add_argument('--fold_seed', default=123, type=int)
     parser.add_argument('--save_per_fold', action='store_true')

@@ -1,5 +1,4 @@
 import numpy as np
-import random
 import time
 import datetime as dt
 import torch
@@ -24,7 +23,7 @@ def make_cross_validation(test_dataset, model, device, config, k=5, fold_seed=12
     
     assert k <= n, f"k_folds must be <= dataset size (n={n})"
 
-    folds = make_k_folds(n=n, k=k, seed=fold_seed, shuffle=True)
+    folds = make_k_folds(n, k, fold_seed)
 
     start_time = time.time()
     print(f"### Start {k}-fold evaluating (outcome CV)", flush=True)
@@ -56,13 +55,15 @@ def make_cross_validation(test_dataset, model, device, config, k=5, fold_seed=12
         per_fold_times.append(fold_time_str)
 
         fold_metrics = process_metrics(fold_annotations, fold_preds)
-        fold_metrics_i = "Fold {}/{} metrics: accuracy={:.4f}, f1_fire={:.4f}, f1_nofire={:.4f}, f1_macro={:.4f}".format(
+        fold_metrics_i = "Fold {}/{} metrics: Accuracy={:.4f}, F1 fire={:.4f}, F1 nofire={:.4f}, f1_macro={:.4f}, MCC fire:{:.4f} MCC no fire:{:.4f}".format(
                 fold_i + 1,
                 k,
                 fold_metrics["accuracy"],
                 fold_metrics["f1_fire"],
                 fold_metrics["f1_nofire"],
                 fold_metrics["f1_macro"],
+                fold_metrics["mcc_fire"],
+                fold_metrics["mcc_nofire"]
             )
         print(f"###{fold_metrics_i}", flush=True)
         prediction_test_data = prediction_test_data + '\n' +  fold_metrics_i

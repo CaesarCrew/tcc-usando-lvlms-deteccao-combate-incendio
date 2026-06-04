@@ -64,22 +64,41 @@ def compute_binary_metrics(targets, predictions):
         precision = tp / (tp + fp) if (tp + fp) else 0.0
         recall = tp / (tp + fn) if (tp + fn) else 0.0
         return (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    
+    def class_mcc(positive_class):
+        tp = sum((t == positive_class) and (p == positive_class) for t, p in zip(targets, predictions))
+        if(positive_class == "fire"):
+            tn = sum((t == "nofire") and (p == "nofire") for t, p in zip(targets, predictions))
+            fp = sum((t == "nofire") and (p == positive_class) for t, p in zip(targets, predictions))
+            fn = sum((t == positive_class) and (p == "nofire") for t, p in zip(targets, predictions))
+        if(positive_class == "nofire"):
+            tn = sum((t == "fire") and (p == "fire") for t, p in zip(targets, predictions))
+            fp = sum((t == "fire") and (p == positive_class) for t, p in zip(targets, predictions))
+            fn = sum((t == positive_class) and (p == "fire") for t, p in zip(targets, predictions))
+        
+        #print(f"Fold tn: {tn} Fold fp: {fp}")
+        nominator = (tp * tn) - (fp * fn)
+        normalized_denominator = pow((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn), 0.5)
+        return nominator / normalized_denominator
 
     f1_fire = class_f1("fire")
     f1_nofire = class_f1("nofire")
+    mcc_fire = class_mcc("fire")
+    mcc_nofire = class_mcc("nofire")
 
     return {
         "accuracy": accuracy,
         "f1_fire": f1_fire,
         "f1_nofire": f1_nofire,
         "f1_macro": (f1_fire + f1_nofire) / 2 if total else 0.0,
+        "mcc_fire": mcc_fire,
+        "mcc_nofire": mcc_nofire,
     }
 
 def process_metrics(annotations, predictions):
     targets = []
     predictions_format = []
     for ann, pred in zip(annotations, predictions):
-        print(f"Verify: {ann} \n")
         target_class = extract_class(ann["answer"][0])
         predicted_class = predict_binary_class(pred["text_output"])
         targets.append(target_class)
@@ -88,7 +107,7 @@ def process_metrics(annotations, predictions):
         pred["predicted_class"] = predicted_class
         pred["image_path"] = ann["image"]
     
-    print(f"Targets: {targets} \n")
+    #print(f"Targets: {targets} \n")
     #print(f"Predictions: {predictions_format} \n")
     metrics = compute_binary_metrics(targets, predictions_format)
     return metrics

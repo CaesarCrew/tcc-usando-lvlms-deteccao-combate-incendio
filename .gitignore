@@ -11,4 +11,5 @@ finetune_lynx.pt
 
 *.jsonl
 stats.txt
+generate.sh
 */__pycache__/

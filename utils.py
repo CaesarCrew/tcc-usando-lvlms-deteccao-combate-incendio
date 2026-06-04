@@ -89,9 +89,9 @@ def write_jsonl(data, wpath):
         for sample in data:
             f.write(json.dumps(sample)+'\n')
 
-def write_txt_doc(test_file, data, wpath, file):
+def write_txt_doc(test_file, data, wpath, seed, file):
     with open(wpath, 'a') as f:
-        f.write(f'File used: {test_file} Output: {file}\n')
+        f.write(f'File used: {test_file} \t Output: {file} \t Random seed: {seed}\n')
         f.write(data)
 
 def write_jsonl_per_fold(fold_preds, output_path):
@@ -100,7 +100,14 @@ def write_jsonl_per_fold(fold_preds, output_path):
     print("### Fold results saved to:", fold_out, flush=True)
     return fold_out
 
-
+def create_test_file(wpath, number_start, number_finish, dataset, image_path, answer, question = "Is there a fire in this image?"):
+    data = []
+    answer_list = []
+    answer_list.append(answer)
+    for number in range(number_start, number_finish+1):
+        image = f"{image_path}{number}.jpg"
+        data.append({"dataset": dataset, "question": question, "answer": answer_list, "index": 1, "image": image})
+    write_jsonl(data, wpath)
 
 def update_config(config, override_cfg_str=""):
     if override_cfg_str != "":
