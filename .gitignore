@@ -1,15 +1,12 @@
 __pycache__/
 .idea/
 .DS_Store
-images/
-data/vicuna-7b/
+predictions/
+data/vicuna-7b/.gitattributes
+data/vicuna-7b/config.json
 
 data/eva_vit_g.pth
-eva_vit_g.pth
 data/finetune_lynx.pt
-finetune_lynx.pt
-
-*.jsonl
 stats.txt
-generate.sh
+
 */__pycache__/
