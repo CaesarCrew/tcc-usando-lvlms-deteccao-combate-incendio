@@ -32,8 +32,7 @@ from dataset import create_dataset, create_loader
 torch.set_default_dtype(torch.float16)
 @ torch.no_grad()
 def evaluation(model, data_loader, device, config):
-    # test
-    model.eval()
+    model.eval() # test
 
     result = []
 

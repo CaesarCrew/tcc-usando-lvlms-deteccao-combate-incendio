@@ -2,8 +2,7 @@ __pycache__/
 .idea/
 .DS_Store
 predictions/
-data/vicuna-7b/.gitattributes
-data/vicuna-7b/config.json
+data/vicuna-7b/
 
 data/eva_vit_g.pth
 data/finetune_lynx.pt

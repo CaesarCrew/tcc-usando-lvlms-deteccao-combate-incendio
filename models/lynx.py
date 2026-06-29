@@ -337,6 +337,7 @@ class LynxBase(nn.Module):
                  use_nucleus_sampling=False, num_beams=5, max_new_tokens=64, min_length=2, top_p=0.9, top_k=3,
                  repetition_penalty=1.0, no_repeat_ngram_size=3,
                  length_penalty=1.0, num_return_sequences=1, temperature=1, apply_lemmatizer=False):
+        
         input_ids = input_ids.to("cpu")
         text_embeds = self.embed_tokens(input_ids)
         text_embeds = text_embeds.to("cuda")

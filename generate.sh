@@ -5,5 +5,4 @@ python3 generate.py \
 --config "configs/LYNX.yaml" \
 --output_path "./stats.txt" \
 --device "cuda" \
---cross_val \
---k_folds 10
+--seed 43
