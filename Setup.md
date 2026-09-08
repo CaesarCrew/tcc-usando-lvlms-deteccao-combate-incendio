@@ -18,7 +18,10 @@ With that code, you can proceed and search the correct driver to your GPU.
 
 Then, you can search it in the [nvidia website](https://www.nvidia.com/en-us/drivers/), specially if you're using Windows. If you're
 a linux enjoyer however, my advice is to install it from your package manager or favorite specialized repository.
-If you're using Arch linux specifically, I suggest that you use [AUR](https://aur.archlinux.org/).
+If you're using Arch linux specifically, I suggest that you use [AUR](https://aur.archlinux.org/), which may require the [guide](https://wiki.archlinux.org/title/Arch_User_Repository) if it's your first time using it.
+
+## Environment
+https://www.anaconda.com/docs/getting-started/miniconda/install/linux-install
 
 ### Arch Instalation Troubleshooting
 If after installing and reboot Arch, you receive the message:
