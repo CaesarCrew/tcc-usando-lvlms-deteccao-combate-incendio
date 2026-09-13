@@ -21,7 +21,11 @@ a linux enjoyer however, my advice is to install it from your package manager or
 If you're using Arch linux specifically, I suggest that you use [AUR](https://aur.archlinux.org/), which may require the [guide](https://wiki.archlinux.org/title/Arch_User_Repository) if it's your first time using it.
 
 ## Environment
-https://www.anaconda.com/docs/getting-started/miniconda/install/linux-install
+In order to maintain environments configured to not interfere which each model requirements, I highly recommend the use of a environment manager. I use [Anaconda](https://www.anaconda.com/docs/getting-started/installation) since I'm used to it, but you may be free to use simply [venv](https://docs.python.org/3/library/venv.html), or XXXXXX.
+
+## Parallel Computing
+
+[guide](https://docs.open-mpi.org/en/v5.0.x/installing-open-mpi/quickstart.html)
 
 ### Arch Instalation Troubleshooting
 If after installing and reboot Arch, you receive the message:
