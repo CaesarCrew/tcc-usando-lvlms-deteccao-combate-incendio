@@ -19,7 +19,6 @@ import torch
 import torch.distributed as dist
 
 import ruamel.yaml as yaml
-import socket
 
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):
@@ -120,8 +119,3 @@ def update_config(config, override_cfg_str=""):
                     config[k][kk] = vv
             else:
                 config[k] = v
-
-def _find_free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
