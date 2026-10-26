@@ -37,7 +37,7 @@ add_frame_pos: True
 LLM: 'vicuna-7b'
 use_flash_attn: False
 use_adapter: True
-adapter_freq: 2
+adapter_freq: 4
 
 bridge: 'resampler'
 bridge_depth: 3
@@ -59,9 +59,9 @@ checkpoint: "./data/finetune_lynx.pt"
 max_input_tokens: 40
 batch_size_test: 1
 max_new_tokens: 64
-min_length: 2
+min_length: 1
 num_beams: 1
-length_penalty: -2.0
+length_penalty: -3.0
 top_p: 0.9
 top_k: 3
 no_repeat_ngram_size: 2
