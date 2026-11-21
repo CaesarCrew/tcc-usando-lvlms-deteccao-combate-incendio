@@ -47,10 +47,10 @@ class AllGather(torch.autograd.Function):
         )
 
 
-allgather = AllGather.apply
+#allgather = AllGather.apply
 
 
-def disabled_train(self, mode=True):
+def disable_train(self, mode=True):
     """Overwrite model.train with this function to make sure train/eval mode
     does not change anymore."""
     return self
@@ -69,7 +69,10 @@ class LynxBase(nn.Module):
         self.update_init_params([f'vision_encoder.{k}' for k in missing_keys])
 
         self.tokenizer, num_new_tokens = build_tokenizer(config['LLM'], use_left_pad=config['use_left_pad'])
-        self.LLM, missing_keys = self.build_LLM(config, freeze_params=freeze_llm, num_new_tokens=num_new_tokens)
+        if(config['mmap_llm']):
+            self.LLM, missing_keys = self.build_LLM_mmap(config, freeze_params=freeze_llm, num_new_tokens=num_new_tokens)
+        else:
+            self.LLM, missing_keys = self.build_LLM(config, freeze_params=freeze_llm, num_new_tokens=num_new_tokens)
         self.update_init_params([f'LLM.{k}' for k in missing_keys])
 
         # Bridge: Vision2Text
@@ -120,8 +123,9 @@ class LynxBase(nn.Module):
             for name, param in model.named_parameters():
                 param.requires_grad = False
 
+            print("### Desabling training and setting for evaluation")
             model = model.eval()
-            model.train = disabled_train
+            model.train = disable_train
 
         return model, missing_keys
 
@@ -146,7 +150,7 @@ class LynxBase(nn.Module):
             text_config.freeze_params = freeze_params
             text_config.label_smoothing = config.get("label_smoothing", 0.0)
 
-            model = LlamaForCausalLM.from_pretrained(rpath, config=text_config)
+            model = LlamaForCausalLM.from_pretrained(rpath, config=text_config) #, low_cpu_mem_usage=True)
 
             model.model.padding_idx = self.tokenizer.pad_token_id
 
@@ -185,7 +189,69 @@ class LynxBase(nn.Module):
 
         return model, missing_keys
 
-    def build_bridge(self, config, load_params=True):
+    def build_LLM_mmap(self, config, freeze_params=True, num_new_tokens=0):
+        print(f"### Building LLM (Freeze: {freeze_params})", flush=True)
+
+        self.use_dec_only = True
+        self.use_adapter = config.get('use_adapter', False)
+
+        if config['LLM'] in ['vicuna-7b']:
+            from models.utils import load_sharded_bin_mmap
+            from models.llms.llama.modeling_llama import LlamaForCausalLM, LlamaConfig
+
+            rpath = os.path.join("data/", config['LLM'])
+            assert os.path.exists(rpath)
+
+            text_config = LlamaConfig.from_json_file(os.path.join(rpath, "config.json"))
+
+            text_config.use_flash_attn = config.get("use_flash_attn", False)
+
+            text_config.use_adapter = self.use_adapter
+            text_config.adapter_freq = config.get('adapter_freq', -1)
+            text_config.freeze_params = freeze_params
+            text_config.label_smoothing = config.get("label_smoothing", 0.0)
+
+            llm_state = load_sharded_bin_mmap(rpath)
+            model = LlamaForCausalLM.from_pretrained(rpath, config=text_config, state_dict=llm_state) #, low_cpu_mem_usage=True)
+
+            model.model.padding_idx = self.tokenizer.pad_token_id
+
+            missing_keys = [n for n, _ in model.named_parameters() if 'adapter' in n]
+
+            # set attrs
+            self.text_width = model.config.hidden_size
+            decoder_layers_attr_name = "model.layers"
+
+        else:
+            raise NotImplementedError("LLM: ", config['LLM'])
+
+        if num_new_tokens > 0:
+            print("### LLM Vocab Size: ", model.config.vocab_size, flush=True)
+            print("### num_new_tokens: ", num_new_tokens, flush=True)
+            vocab_size = model.config.vocab_size + num_new_tokens
+            assert vocab_size == len(self.tokenizer)
+
+            model.resize_token_embeddings(vocab_size)
+            input_embeddings = model.get_input_embeddings().weight.data
+            output_embeddings = model.get_output_embeddings().weight.data
+
+            input_embeddings_avg = input_embeddings[:-num_new_tokens].mean(dim=0, keepdim=True)
+            output_embeddings_avg = output_embeddings[:-num_new_tokens].mean(dim=0, keepdim=True)
+
+            input_embeddings[-num_new_tokens:] = input_embeddings_avg
+            output_embeddings[-num_new_tokens:] = output_embeddings_avg
+
+        if freeze_params:
+            print("### Freeze LLM", flush=True)
+            for name, param in model.named_parameters():
+                if 'adapter' in name:
+                    pass
+                else:
+                    param.requires_grad = False
+
+        return model, missing_keys
+
+    def build_bridge(self, config, load_params=False):
         """
         Bridge for Vision to Text
         """
@@ -338,12 +404,11 @@ class LynxBase(nn.Module):
                  repetition_penalty=1.0, no_repeat_ngram_size=3,
                  length_penalty=1.0, num_return_sequences=1, temperature=1, apply_lemmatizer=False):
         
-        input_ids = input_ids.to("cpu")
+        #input_ids = input_ids.to("cpu")
         text_embeds = self.embed_tokens(input_ids)
         text_embeds = text_embeds.to("cuda")
 
         if vision_input is not None:
-            #vision_input = vision_input.to("cuda").half()
             vision_embeds, vision_atts = self.get_vision_embeds(vision_input)
             v2t_feats, v2t_atts = self.bridge(vision_embeds=vision_embeds, vision_atts=vision_atts)
 
