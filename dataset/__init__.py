@@ -70,18 +70,26 @@ def create_dataset(dataset, config):
     else:
         raise NotImplementedError(f"dataset == {dataset}")
 
+def create_train_dataset(dataset, config):
+    if dataset == 'eval':
+        from dataset.train_datasets import LynxTrainDatasetBase
+        train_dataset = LynxTrainDatasetBase(config)
+        return train_dataset
+    else:
+        raise NotImplementedError(f"dataset == {dataset}")
 
-def create_loader(datasets, batch_size, num_workers, collate_fns):
+
+def create_loader(datasets, batch_size, num_workers, collate_fns, shuffles, pin_memories):
     loaders = []
-    for dataset, bs, n_worker, collate_fn in zip(datasets, batch_size, num_workers, collate_fns):
+    for dataset, bs, n_worker, collate_fn, shuffle, pin_memory in zip(datasets, batch_size, num_workers, collate_fns, shuffles, pin_memories):
         loader = DataLoader(
             dataset,
             batch_size=bs,
             num_workers=n_worker,
-            pin_memory=True,
-            shuffle=False,
             collate_fn=collate_fn,
             drop_last=False,
+            shuffle=shuffle,
+            pin_memory=pin_memory,
         )
         loaders.append(loader)
 
