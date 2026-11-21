@@ -396,14 +396,16 @@ def main(args, config):
         )
         train_loader_dataset_build_time = time.time() - train_loader_dataset_build_time
 
+        optimizer = torch.optim.AdamW(trainable_params, lr=config["learning_rate"], weight_decay=config["weight_decay"])
+
         t0 = time.time()
         train_history = train_one_fold(
             model=model,
             train_loader=train_loader,
             device=device,
             epochs=args.epochs,
-            lr=args.learning_rate,
-            weight_decay=args.weight_decay,
+            trainable_params=trainable_params,
+            optimizer=optimizer,
             grad_accum_steps=args.grad_accum_steps,
             grad_clip=args.grad_clip,
         )

@@ -55,6 +55,8 @@ checkpoint: "./data/finetune_lynx.pt"
 
 ## Training params
 num_workers: 4 # used in the dataloader
+learning_rate: 1e-5
+weight_decay: 0.01
 train_epochs: 2
 grad_accum_steps: 1 # make always sure train_epochs%grad_accum_steps == 0
 best_loss: 3.9191527515649796

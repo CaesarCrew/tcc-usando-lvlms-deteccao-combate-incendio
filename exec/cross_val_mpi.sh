@@ -15,7 +15,7 @@ HOSTS=$(grep -v '^\s*#' "$HOSTFILE" | awk 'NF {print $1}')
 
 COUNT_CORES="lscpu -p=core,socket | grep -v '^#' | sort -u | wc -l"
 N_NODES=$(echo "$HOSTS" | wc -w)
-NP=$(( N_NODES * 2 ))
+NP=$(( N_NODES * 1 ))
 MIN_CORES=""
 for h in $HOSTS; do
     if [[ "$LOCAL_NAMES" == *" $h "* ]]; then
@@ -33,7 +33,7 @@ for h in $HOSTS; do
     echo "### $h ($where): $c physical cores"
     if [ -z "$MIN_CORES" ] || [ "$c" -lt "$MIN_CORES" ]; then MIN_CORES=$c; fi
 done
-K=$(( MIN_CORES / 2 ))
+K=$(( MIN_CORES / 1 ))
 
 cd "$HOME/Development/tcc"
 mpirun --hostfile "$HOSTFILE" \
