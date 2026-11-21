@@ -1,10 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+PROJECT_ROOT="$HOME/Development/tcc"
 PYTHON="$HOME/Development/miniconda3/envs/lynx/bin/python" 
 HOSTFILE="/home/natureman4everr/Development/tcc/hostfile.txt"
-SCRIPT="training/cross_val_mpi.py"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 LOCAL_IPS=$(ip -o addr show 2>/dev/null | awk '{split($4, a, "/"); print a[1]}' | tr '\n' ' ' || true)
 NODE_NAME=$(uname -n 2>/dev/null || true)              # always present, unlike `hostname`
@@ -36,9 +37,9 @@ K=$(( MIN_CORES / 2 ))
 
 cd "$HOME/Development/tcc"
 mpirun --hostfile "$HOSTFILE" \
--np "$NP" \
---map-by "ppr:2:node:pe=${K}" \
+ -np "$NP" \
+ --map-by "ppr:2:node:pe=${K}" \
  --bind-to core \
  -x OMP_NUM_THREADS=$K \
--x PATH -x LD_LIBRARY_PATH \
-"$PYTHON" -u "$SCRIPT" "$@"
+ -x PATH -x LD_LIBRARY_PATH -x PYTHONPATH \
+ "$PYTHON" -u -m training.cross_val_mpi "$@"

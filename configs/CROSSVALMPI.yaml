@@ -15,7 +15,7 @@
 ## Data
 image_rdir: "./images/"
 
-train_files: [ "./data/Kaggle_Test_Fast.jsonl" ]
+train_files: [ "./data/Kaggle_Training_120.jsonl" ]
 
 # change this prompt for different task
 prompt: "User: {question}\nBot:"

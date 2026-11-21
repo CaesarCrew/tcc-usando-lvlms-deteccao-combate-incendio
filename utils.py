@@ -154,6 +154,14 @@ class SummaryReport:
             return ""
         items = rank_times.items() if isinstance(rank_times, dict) else enumerate(rank_times)
         return "Rank times: " + ", \t ".join(f"Rank {r}={cls.time(t)}" for r, t in items)
+
+    @staticmethod
+    def mean_time(rank_times):
+        """Average time (seconds) across ranks; rank_times is a list or {rank: seconds}."""
+        if not rank_times:
+            return None
+        values = list(rank_times.values()) if isinstance(rank_times, dict) else list(rank_times)
+        return float(np.mean(values))
     
     def _metrics_block(self, metrics):
         return (
@@ -165,14 +173,14 @@ class SummaryReport:
             f"No Fire MCC={self.metric(metrics.get('mcc_nofire'))}, \t "
         )
     
-    def _header(self, output_file, elapsed_s, dataset_time=0, process_time=0, rank_times=None):
+    def _header(self, output_file, elapsed_s, dataset_time, process_time, rank_times):
         header = f"File used: {self.test_file} \t Output: {output_file} \t Random seed: {self.seed}\n"
         if self.cross_val or self.mpi:
             header += (
                 f"Dataset size={self.dataset_size}, \t Number of folds={self.folds}, \t "
                 f"Number of Processes={self.world_size}, \t Number of Threads={self.num_threads}\n"
             )
-        header += f"Time={self.time(elapsed_s)} \t Time used with IO={dataset_time}, \t Processing time={process_time}\n"
+        header += f"Time={self.time(elapsed_s)} \t Time used with IO={self.mean_time(dataset_time)}, \t Processing time={self.mean_time(process_time)}\n"
         if rank_times:
             header += "\n" + self.rank_times(rank_times)
         return header
@@ -196,10 +204,10 @@ class SummaryReport:
             + self._metrics_block(metrics)
         )
 
-    def full(self, output_file, metrics, elapsed_s, rank_times=None):
+    def full(self, output_file, metrics, elapsed_s, dataset_time=0, process_time=0, rank_times=None):
         # Remember to add peak cpu or gpu usage
         """Full report: header, metrics, total time, then each rank's time."""
-        report = self._header(output_file, elapsed_s, rank_times) + self._metrics_block(metrics)
+        report = self._header(output_file, elapsed_s, dataset_time, process_time, rank_times) + self._metrics_block(metrics)
         return report
 
     def short(self, elapsed_s, aggregate=None, metrics=None):

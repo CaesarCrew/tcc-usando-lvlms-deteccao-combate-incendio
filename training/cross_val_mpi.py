@@ -351,15 +351,112 @@ def main(args, config):
         global_start_time = time.time()
     rank_start_time = time.time()
 
-    
-    #trainable_params, n_trainable = get_trainable_params(model)
+    model_build_time = time.time()
+    model = build_model(
+            config=config,
+            device=device,
+            llm_device=args.llm_device,
+            train_adapters=args.train_adapters
+        )
+    model_build_time = time.time() - model_build_time
+
+    trainable_params, n_trainable = get_trainable_params(model)
     if n_trainable == 0:
         raise RuntimeError("No trainable parameters found. Check freeze settings.")
 
-    #pristine_state = snapshot_trainable_state(model)
+    pristine_state = snapshot_trainable_state(model)
 
+    
+    for fold_idx in fold_indices:
+        val_indices = folds[fold_idx]
+        fold_start = time.time()
+        train_indices = sorted(list(set(range(n)) - set(val_indices)))
+
+        print(
+            f"### Fold {fold_idx+1}/{args.k_folds}: train={len(train_indices)} val={len(val_indices)}",
+            flush=True,
+        )
+
+        train_loader_dataset_build_time = time.time()
+        train_dataset = TrainFoldDataset(
+            base_dataset=full_dataset,
+            indices=train_indices,
+            max_total_tokens=args.max_train_tokens,
+        )
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=args.batch_size_train,
+            num_workers=args.num_workers if args.num_workers > 0 else num_workers,
+            pin_memory=torch.cuda.is_available(),
+            persistent_workers=True,
+            prefetch_factor=2 if args.num_workers > 0 else None,
+            shuffle=True,
+            collate_fn=train_dataset.collate_fn,
+            drop_last=False,
+        )
+        train_loader_dataset_build_time = time.time() - train_loader_dataset_build_time
+
+        t0 = time.time()
+        train_history = train_one_fold(
+            model=model,
+            train_loader=train_loader,
+            device=device,
+            epochs=args.epochs,
+            lr=args.learning_rate,
+            weight_decay=args.weight_decay,
+            grad_accum_steps=args.grad_accum_steps,
+            grad_clip=args.grad_clip,
+        )
+        train_time = time.time() - t0
+
+        t1 = time.time()
+        preds, metrics = evaluate_one_fold(
+            model=model,
+            base_dataset=full_dataset,
+            val_indices=val_indices,
+            device=device,
+            config=config,
+            num_workers=args.num_workers,
+        )
+        evaluate_time = timte.time() - t1
+
+        for p in preds:
+            p["fold"] = fold_idx+1
+        all_predictions.extend(preds)
+
+        fold_report = {
+            "fold": fold_idx+1,
+            "n_train": len(train_indices),
+            "n_val": len(val_indices),
+            "train_time_sec": train_time,
+            "train_history": train_history,
+            "metrics": metrics,
+        }
+        fold_reports.append(fold_report)
+
+        fold_line = summary_report.fold(
+            metrics,
+            last_train_loss,
+            len(train_indices),
+            len(val_indices),
+            fold_elapsed,
+            fold_idx,
+        )
+        print(f"### {fold_line}", flush=True)
+
+        if args.save_fold_checkpoints:
+            save_fold_checkpoint(False, model, rank, fold_id, "X", args.checkpoint_dir)
+            print(f"### Fold model saved to: {args.checkpoint_dir}", flush=True)
+
+        del model
+        torch.cuda.empty_cache()
+    
+    io_time = model_build_time + train_loader_dataset_build_time
+    process_time = train_time + evaluate_time
     rank_time = time.time() - rank_start_time
 
+    gathered_io_time = comm.gather(io_time, root=0)
+    gathered_process_time = comm.gather(process_time, root=0)
     gathered_reports = comm.gather(fold_reports, root=0)
     gathered_predictions = comm.gather(all_predictions, root=0)
     gathered_rank_times = comm.gather(rank_time, root=0)
@@ -372,6 +469,7 @@ def main(args, config):
         report_out = os.path.join(args.output_dir, f"cross_val_report_{timestamp}.json")
 
         all_fold_predictions = [p for ranks_preds in gathered_predictions for p in ranks_preds]
+        all_fold_io_time = [p for ranks_preds in gathered_predictions for p in ranks_preds]
 
         if args.save_fold_predictions:
             write_jsonl(all_fold_predictions, pred_out, 'w')
@@ -383,7 +481,7 @@ def main(args, config):
         )
 
         aggregate = summary_report.aggregate(all_fold_reports)
-        full_report = summary_report.full(report_out, aggregate, taken_time, gathered_rank_times)
+        full_report = summary_report.full(report_out, aggregate, taken_time, io_time, process_time, gathered_rank_times)
         short_report = summary_report.short(time_taken, aggregate)
 
         with open(report_out, "w", encoding="utf-8") as f:
