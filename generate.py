@@ -32,7 +32,7 @@ from dataset import create_dataset, create_loader
 torch.set_default_dtype(torch.float16)
 @ torch.no_grad()
 def evaluation(model, data_loader, device, config):
-    model.eval() # test
+    model.eval() # Together with no_grad() prevents having the weights being tampered with
 
     result = []
 

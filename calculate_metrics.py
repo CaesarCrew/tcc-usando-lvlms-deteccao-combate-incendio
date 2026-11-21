@@ -79,7 +79,11 @@ def compute_binary_metrics(targets, predictions):
         #print(f"Fold tn: {tn} Fold fp: {fp}")
         nominator = (tp * tn) - (fp * fn)
         normalized_denominator = pow((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn), 0.5)
-        return nominator / normalized_denominator
+        if normalized_denominator != 0:
+            return nominator / normalized_denominator
+        else:
+            print(f"### No images of class {positive_class}")
+            return 0
 
     f1_fire = class_f1("fire")
     f1_nofire = class_f1("nofire")

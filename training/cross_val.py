@@ -4,7 +4,6 @@ import datetime as dt
 from datetime import datetime
 import json
 import os
-import random
 import time
 
 import numpy as np
@@ -14,8 +13,10 @@ from ruamel.yaml import YAML
 from torch.utils.data import DataLoader, Dataset, Subset
 
 from calculate_metrics import process_metrics
-from dataset import create_dataset
+from dataset import create_train_dataset
+from dataset.train_datasets import TrainFoldDataset
 from utils import get_rank, write_jsonl
+from training.utils import resolve_data_files
 
 
 def cuda_memory_report(tag):
@@ -31,108 +32,6 @@ def cuda_memory_report(tag):
         f"max_allocated={max_allocated:.1f} MiB, max_reserved={max_reserved:.1f} MiB",
         flush=True,
     )
-
-
-class TrainFoldDataset(Dataset):
-    def __init__(self, base_dataset, indices, max_total_tokens=128):
-        self.base_dataset = base_dataset
-        self.indices = list(indices)
-        self.max_total_tokens = max_total_tokens
-
-        self.tokenizer = base_dataset.tokenizer
-        self.use_left_pad = base_dataset.use_left_pad
-        self.lower_text = base_dataset.lower_text
-        self.output_key = base_dataset.OUTPUT_PROMPT_DICT
-
-    def __len__(self):
-        return len(self.indices)
-
-    def _truncate(self, prompt_ids, answer_ids):
-        max_total = max(2, self.max_total_tokens)
-
-        if len(answer_ids) >= max_total:
-            answer_ids = answer_ids[-(max_total - 1):]
-            prompt_ids = prompt_ids[:1]
-
-        total = len(prompt_ids) + len(answer_ids)
-        if total <= max_total:
-            return prompt_ids, answer_ids
-
-        keep_prompt = max(1, max_total - len(answer_ids))
-        if keep_prompt == 1:
-            return prompt_ids[:1], answer_ids
-
-        return [prompt_ids[0]] + prompt_ids[-(keep_prompt - 1):], answer_ids
-
-    def __getitem__(self, item):
-        idx = self.indices[item]
-        ann = self.base_dataset.data[idx]
-
-        if self.output_key not in ann:
-            raise KeyError(f"Missing key '{self.output_key}' in sample index {idx}")
-
-        vision_input = self.base_dataset.get_vision_input(ann)
-        prompt_text = self.base_dataset.get_text_input(ann)
-
-        answer_text = str(ann[self.output_key]).strip()
-        if self.lower_text:
-            answer_text = answer_text.lower()
-
-        prompt_tokens = [self.tokenizer.bos_token] + self.tokenizer.tokenize(prompt_text)
-        answer_tokens = self.tokenizer.tokenize(" " + answer_text) + [self.tokenizer.eos_token]
-
-        prompt_ids = self.tokenizer.convert_tokens_to_ids(prompt_tokens)
-        answer_ids = self.tokenizer.convert_tokens_to_ids(answer_tokens)
-
-        prompt_ids, answer_ids = self._truncate(prompt_ids, answer_ids)
-
-        input_ids = prompt_ids + answer_ids
-        labels = ([-100] * len(prompt_ids)) + answer_ids
-
-        return idx, vision_input, input_ids, labels
-
-    def _pad_sequences(self, input_ids, labels):
-        max_len = max(len(x) for x in input_ids)
-        pad_id = self.tokenizer.pad_token_id
-
-        input_ids_pad = []
-        input_atts_pad = []
-        labels_pad = []
-
-        for ids, lbs in zip(input_ids, labels):
-            n = len(ids)
-            n_pad = max_len - n
-
-            if self.use_left_pad:
-                input_ids_pad.append(([pad_id] * n_pad) + ids)
-                input_atts_pad.append(([0] * n_pad) + ([1] * n))
-                labels_pad.append(([-100] * n_pad) + lbs)
-            else:
-                input_ids_pad.append(ids + ([pad_id] * n_pad))
-                input_atts_pad.append(([1] * n) + ([0] * n_pad))
-                labels_pad.append(lbs + ([-100] * n_pad))
-
-        return (
-            torch.LongTensor(input_ids_pad),
-            torch.LongTensor(input_atts_pad),
-            torch.LongTensor(labels_pad)
-        )
-
-    def collate_fn(self, batch):
-        idx, vision_input, input_ids, labels = zip(*batch)
-
-        if isinstance(vision_input[0], list):
-            batch_size = len(vision_input)
-            vision_input = torch.stack(sum(vision_input, []))
-            _, c, h, w = vision_input.shape
-            if self.base_dataset.num_frames > 1:
-                vision_input = vision_input.reshape([batch_size, self.base_dataset.num_frames, c, h, w])
-        else:
-            vision_input = torch.stack(vision_input, dim=0)
-
-        input_ids_pad, input_atts_pad, labels_pad = self._pad_sequences(input_ids, labels)
-        return idx, vision_input, input_ids_pad, input_atts_pad, labels_pad
-
 
 def make_kfold_indices(annotations, k=5, seed=123, stratified=True):
     rng = np.random.default_rng(seed)
@@ -187,6 +86,8 @@ def build_model(config, device, llm_device="cpu", train_adapters=False):
 
     if llm_device != "cpu":
         print("### For cross-validation, keeping LLM on CPU to match generate.py placement", flush=True)
+    
+    llm_device = torch.device("cpu")
     model.LLM = model.LLM.to(llm_device)
 
     cuda_memory_report("after LLM placement")
@@ -267,18 +168,16 @@ def train_one_fold(model, train_loader, device, epochs, lr, weight_decay, grad_a
     for epoch in range(epochs):
         running_loss = 0.0
         n_steps = 0
-        optimizer.zero_grad(set_to_none=True)
 
         for step, batch in enumerate(train_loader):
             loss = forward_train_loss(model, batch, device)
             loss = loss / grad_accum_steps
+            optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            print(f"### Step {step + 1}/{len(train_loader)}")
             if (step + 1) % grad_accum_steps == 0:
                 if grad_clip > 0:
                     torch.nn.utils.clip_grad_norm_(trainable_params, grad_clip)
                 optimizer.step()
-                optimizer.zero_grad(set_to_none=True)
                 global_step += 1
 
             running_loss += loss.item() * grad_accum_steps
@@ -288,11 +187,11 @@ def train_one_fold(model, train_loader, device, epochs, lr, weight_decay, grad_a
             if grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(trainable_params, grad_clip)
             optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
             global_step += 1
 
         epoch_loss = running_loss / max(1, n_steps)
         history.append({"epoch": epoch + 1, "loss": epoch_loss, "global_step": global_step})
+        print(f"### Finishing epoch {epoch} and aplying gradients from Step {step + 1}/{len(train_loader)}", flush=True)
 
     return history
 
@@ -301,7 +200,7 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config, num_work
     val_subset = Subset(base_dataset, val_indices)
     val_loader = DataLoader(
         val_subset,
-        batch_size=config["batch_size_test"],
+        batch_size=args.batch_size_train,
         num_workers=num_workers,
         pin_memory=True,
         shuffle=False,
@@ -311,12 +210,11 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config, num_work
 
     preds = []
     model.eval()
-    with torch.no_grad():
+    with torch.inference_mode():
         for idx, vision_input, input_ids, input_atts in val_loader:
             vision_input = vision_input.to(device, non_blocking=True)
-            input_ids = input_ids[:, -128:]
-            input_atts = input_atts[:, -128:]
-            input_atts = input_atts.to("cuda")
+            input_ids = input_ids[:, -128:].to(device)
+            input_atts = input_atts[:, -128:].to("cuda", non_blocking=True)
 
             text_outputs = model.generate(
                 vision_input=vision_input,
@@ -358,19 +256,22 @@ def aggregate_metrics(fold_metrics):
 def main(args, config):
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
     os.makedirs(args.output_dir, exist_ok=True)
+    torch.set_num_threads(max(1, min(12, (os.cpu_count() or 1))))
+    torch.set_num_interop_threads(1)
+    torch.backends.mkldnn.enabled = True
+    print(f"### Number of CPU threads: {torch.get_num_threads()}", flush=True)
 
     seed = args.seed + get_rank()
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
+    #torch.manual_seed(seed)
+    #np.random.seed(seed)
     cudnn.benchmark = True
 
-    if args.dataset_files:
-        config = copy.deepcopy(config)
-        config["test_files"] = args.dataset_files
+    data_files = resolve_data_files(args, config)
+    config_for_data = copy.deepcopy(config)
+    config_for_data["test_files"] = data_files
 
     print("### Creating dataset for cross-validation", flush=True)
-    full_dataset = create_dataset("eval", config)
+    full_dataset = create_train_dataset("eval", config_for_data)
     n = len(full_dataset)
     assert args.k_folds >= 2, "k_folds must be >= 2"
     assert args.k_folds <= n, f"k_folds must be <= dataset size (n={n})"
@@ -382,29 +283,31 @@ def main(args, config):
         stratified=(not args.disable_stratified)
     )
 
-    print(f"### Start {args.k_folds}-fold cross-validation with retraining", flush=True)
-    start_cv = time.time()
+    print("### Fold sizes:", [len(f) for f in folds], flush=True)
 
     all_predictions = []
     all_fold_metrics = []
     fold_reports = []
+    num_workers = max(2, min(8, (os.cpu_count() or 1) // 2))
+    print(f"### Using {num_workers} workers for DataLoader", flush=True)
+
+    print(f"### Start {args.k_folds}-fold cross-validation with retraining", flush=True)
+    start_cv = time.time()
 
     for fold_i, val_indices in enumerate(folds):
         fold_no = fold_i + 1
-        val_set = set(val_indices)
-        train_indices = [i for i in range(n) if i not in val_set]
+        #val_set = set(val_indices)
+        #train_indices = [i for i in range(n) if i not in val_set]
+        train_indices = sorted(list(set(range(n)) - set(val_indices)))
 
         print(
             f"### Fold {fold_no}/{args.k_folds}: train={len(train_indices)} val={len(val_indices)}",
             flush=True,
         )
 
-        fold_seed = seed + fold_i
-        torch.manual_seed(fold_seed)
-        np.random.seed(fold_seed)
-        random.seed(fold_seed)
-
-        cuda_memory_report(f"fold {fold_no} before model build")
+        if device == torch.device("cuda"):
+            torch.cuda.reset_peak_memory_stats(device)
+            cuda_memory_report(f"fold {fold_no} before model build")
 
         model = build_model(
             config=config,
@@ -421,14 +324,18 @@ def main(args, config):
         train_loader = DataLoader(
             train_dataset,
             batch_size=args.batch_size_train,
-            num_workers=args.num_workers,
-            pin_memory=True,
+            num_workers=args.num_workers if args.num_workers > 0 else num_workers,
+            pin_memory=torch.cuda.is_available(),
+            persistent_workers=True,
+            prefetch_factor=2 if args.num_workers > 0 else None,
             shuffle=True,
             collate_fn=train_dataset.collate_fn,
             drop_last=False,
         )
 
-        cuda_memory_report(f"fold {fold_no} after dataset and loader build")
+        if device == torch.device("cuda"):
+            torch.cuda.reset_peak_memory_stats(device)
+            cuda_memory_report(f"fold {fold_no} after dataset and loader build")
 
         t0 = time.time()
         train_history = train_one_fold(
@@ -541,8 +448,6 @@ if __name__ == "__main__":
     parser.add_argument("--llm_device", type=str, choices=["cpu", "cuda"], default="cpu")
     parser.add_argument("--seed", type=int, default=43)
 
-    parser.add_argument("--data_files", type=str, nargs="*", default=None)
-    parser.add_argument("--dataset_files", nargs="+", default=None)
     parser.add_argument("--k_folds", type=int, default=5, required=True)
     parser.add_argument("--fold_seed", type=int, default=123)
 

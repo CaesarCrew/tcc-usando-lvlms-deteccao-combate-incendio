@@ -1,25 +1,14 @@
-# This file may have been modified by Bytedance Ltd. and/or its affiliates (“Bytedance's Modifications”).
-# All Bytedance's Modifications are Copyright (year) Bytedance Ltd. and/or its affiliates.
-# Copyright (2023) Bytedance Ltd. and/or its affiliates
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import json
+import datetime as dt
+import time
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+
+import numpy as np
+import ruamel.yaml as yaml
+
 import torch
 import torch.distributed as dist
-
-import ruamel.yaml as yaml
-import socket
 
 class AttrDict(dict):
     def __init__(self, *args, **kwargs):
@@ -63,19 +52,20 @@ def get_rank():
     return dist.get_rank()
 
 
-def is_main_process():
-    return get_rank() == 0
-
-
 def save_on_master(*args, **kwargs):
-    if is_main_process():
+    if get_rank() == 0:
         torch.save(*args, **kwargs)
 
 
 def read_json(rpath):
     with open(rpath, 'r') as f:
         return json.load(f)
-    
+
+
+def write_json(data, wpath):
+    with open(wpath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
 
 def read_jsonl(rpath):
     data = []
@@ -90,25 +80,32 @@ def write_jsonl(data, wpath, option):
         for sample in data:
             f.write(json.dumps(sample)+'\n')
 
-def write_txt_doc(test_file, data, wpath, seed, file):
+
+def write_txt_doc(data, wpath):
     with open(wpath, 'a') as f:
-        f.write(f'File used: {test_file} \t Output: {file} \t Random seed: {seed}\n')
+        #f.write(f'File used: {test_file} \t Output: {file} \t Random seed: {seed}\n')
         f.write(data)
 
-def write_jsonl_per_fold(fold_preds, output_path):
+
+def write_jsonl_per_fold(fold_i, fold_preds, output_path):
     fold_out = output_path.replace(".jsonl", f"_fold{fold_i}.jsonl")
     write_jsonl(fold_preds, fold_out, 'w')
     print("### Fold results saved to:", fold_out, flush=True)
     return fold_out
 
-def create_test_file(wpath, number_start, number_finish, dataset, image_path, answer, question = "Is there a fire in this image?"):
+
+def create_test_file(wpath, append, number_start, number_finish, dataset, image_path, answer, question = "Is there a fire in this image?"):
     data = []
     answer_list = []
     answer_list.append(answer)
     for number in range(number_start, number_finish+1):
         image = f"{image_path}{number}.jpg"
         data.append({"dataset": dataset, "question": question, "answer": answer_list, "index": number, "image": image})
-    write_jsonl(data, wpath, 'a')
+    if append:
+        write_jsonl(data, wpath, 'a')
+    else:
+        write_jsonl(data, wpath, 'w')
+
 
 def update_config(config, override_cfg_str=""):
     if override_cfg_str != "":
@@ -121,7 +118,100 @@ def update_config(config, override_cfg_str=""):
             else:
                 config[k] = v
 
-def _find_free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
+@dataclass
+class SummaryReport:
+    test_file: str
+    seed: int
+    dataset_size: int
+    num_threads: int
+    cross_val: bool = False
+    mpi: bool = False
+    folds: int = 0
+    world_size: int = 0
+    num_threads: int = 0
+    NAMES = ["accuracy", "f1_fire", "f1_nofire", "f1_macro", "mcc_fire", "mcc_nofire"]
+    LABELS = {
+        "accuracy": "Accuracy",
+        "f1_fire": "F1 fire",
+        "f1_nofire": "F1 nofire",
+        "f1_macro": "F1 macro",
+        "mcc_fire": "Fire MCC",
+        "mcc_nofire": "No Fire MCC",
+    }
+
+    @staticmethod
+    def time(seconds):
+        return str(dt.timedelta(seconds=int(seconds)))
+
+    @staticmethod
+    def metric(value):
+        return "N/A" if value is None else f"{value:.4f}"
+
+    @classmethod
+    def rank_times(cls, rank_times):
+        """rank_times: list (index = rank) or dict {rank: seconds}."""
+        if not rank_times:
+            return ""
+        items = rank_times.items() if isinstance(rank_times, dict) else enumerate(rank_times)
+        return "Rank times: " + ", \t ".join(f"Rank {r}={cls.time(t)}" for r, t in items)
+    
+    def _metrics_block(self, metrics):
+        return (
+            f"Accuracy={self.metric(metrics['accuracy'])}, "
+            f"F1 fire={self.metric(metrics['f1_fire'])}, "
+            f"F1 nofire={self.metric(metrics['f1_nofire'])}, "
+            f"F1 macro={self.metric(metrics['f1_macro'])}, "
+            f"Fire MCC={self.metric(metrics.get('mcc_fire'))}, \t "
+            f"No Fire MCC={self.metric(metrics.get('mcc_nofire'))}, \t "
+        )
+    
+    def _header(self, output_file, elapsed_s, dataset_time=0, process_time=0, rank_times=None):
+        header = f"File used: {self.test_file} \t Output: {output_file} \t Random seed: {self.seed}\n"
+        if self.cross_val or self.mpi:
+            header += (
+                f"Dataset size={self.dataset_size}, \t Number of folds={self.folds}, \t "
+                f"Number of Processes={self.world_size}, \t Number of Threads={self.num_threads}\n"
+            )
+        header += f"Time={self.time(elapsed_s)} \t Time used with IO={dataset_time}, \t Processing time={process_time}\n"
+        if rank_times:
+            header += "\n" + self.rank_times(rank_times)
+        return header
+
+    def aggregate(self, all_fold_reports):
+        """Return {'<metric>_mean': ..., '<metric>_std': ...} across folds."""
+        aggregate = {}
+        for name in self.NAMES:
+            values = [fr["metrics"][name] for fr in all_fold_reports
+                      if fr["metrics"].get(name) is not None]
+            if not values:
+                continue
+            aggregate[f"{name}_mean"] = float(np.mean(values))
+            aggregate[f"{name}_std"] = float(np.std(values))
+        return aggregate
+
+    def fold_line(self, fold_id, train_size, val_size, train_loss, elapsed_s, metrics):
+        """One line per fold."""
+        return (
+            f"Fold {fold_id}: train={train_size}, \t val={val_size}, \t loss={train_loss:.4f}, \t Time={self.time(elapsed_s)}"
+            + self._metrics_block(metrics)
+        )
+
+    def full(self, output_file, metrics, elapsed_s, rank_times=None):
+        # Remember to add peak cpu or gpu usage
+        """Full report: header, metrics, total time, then each rank's time."""
+        report = self._header(output_file, elapsed_s, rank_times) + self._metrics_block(metrics)
+        return report
+
+    def short(self, elapsed_s, aggregate=None, metrics=None):
+        """Short report for printing: number of images, total time, average metrics.
+            Pass `aggregate` (from MetricsAggregator.aggregate) for k-fold runs,
+            or `metrics` for a single run.
+        """
+        parts = [f"Images={self.dataset_size}", f"Total time={self.time(elapsed_s)}"]
+        for name in self.NAMES:
+            label = self.LABELS[name]
+            if aggregate and f"{name}_mean" in aggregate:
+                parts.append(f"{label}={aggregate[f'{name}_mean']:.4f} ± {aggregate[f'{name}_std']:.4f}")
+            elif metrics and metrics.get(name) is not None:
+                parts.append(f"{label}={metrics[name]:.4f}")
+        return " | ".join(parts)

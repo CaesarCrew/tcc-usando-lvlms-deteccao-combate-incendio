@@ -1,15 +1,12 @@
 #!/bin/bash
 
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-export PYTHONFAULTHANDLER=1
 
-mpirun -np 16 python3 -u cross_val2_mpi.py \
+python3 -m training.cross_val \
 --config "configs/CROSSVAL.yaml" \
---device "cuda" \
+--device "cpu" \
 --llm_device "cpu" \
---k_folds 10 \
---epochs 100 \
+--k_folds 5 \
+--epochs 1 \
 --batch_size_train 1 \
 --output_dir ./cv_outputs
-
-echo $?
