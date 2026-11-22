@@ -406,7 +406,7 @@ def main(args, config):
     else:
         vision_device, llm_device = pick_worker_devices(worker_idx)
         model = build_model(config, vision_device, llm_device)
-        snapshot_trainable_state(model)
+        pristine_state = snapshot_trainable_state(model)
 
         result = None
         while True:
