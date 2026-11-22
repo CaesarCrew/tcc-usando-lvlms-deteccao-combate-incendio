@@ -203,6 +203,8 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config, num_work
         drop_last=False,
     )
 
+    vision_dtype = next(model.vision_encoder.parameters()).dtype
+    
     preds = []
     model.eval()
     with torch.inference_mode():
