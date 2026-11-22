@@ -351,7 +351,7 @@ def main(args, config):
 
     ## Worker code
     else:
-        vision_device, llm_device = pick_worker_devices(worker_local_idx)
+        vision_device, llm_device = pick_worker_devices(worker_idx)
         model = build_model(config, vision_device, llm_device)
         result = None
         while True:
