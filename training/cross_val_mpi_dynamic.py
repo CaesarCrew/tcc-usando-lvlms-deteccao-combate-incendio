@@ -201,6 +201,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
     from training.utils import get_trainable_params
     trainable_params, _ = get_trainable_params(model)
 
+    n_steps = 0
     for step, batch in enumerate(train_loader):
         loss = forward_train_loss(model, batch, device)
         loss = loss / grad_accum_steps
@@ -213,6 +214,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
                 torch.nn.utils.clip_grad_norm_(trainable_params, grad_clip)
             optimizer.step()
             running_loss += loss.item() * grad_accum_steps
+            n_steps += 1
         
         if (step % 30 == 0 or step == steps) and step != 0:
             avg = running_loss / step
