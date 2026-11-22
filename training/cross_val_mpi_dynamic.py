@@ -405,14 +405,6 @@ def main(args, config):
                 break
             # If we continue:
             try:
-                train_loader, val_loader  = create_loader(
-                    [train_dataset, val_dataset],
-                    batch_size=[args.batch_size_train, args.batch_size_train],
-                    num_workers=[args.num_workers, args.num_workers],
-                    collate_fns=[train_dataset.collate_fn, full_dataset.collate_fn],
-                    shuffles=[True,True],
-                    pin_memories=[using_gpu, using_gpu]
-                )
                 result = run_one_fold(config, absl_best_loss, model, full_dataset, fold_idx, folds, rank)
                 if result["best_loss"] < absl_best_loss:
                     absl_best_loss = result["best_loss"]
