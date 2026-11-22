@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from calculate_metrics import extract_class, process_metrics
 from dataset import create_train_dataset, create_loader
 from dataset.train_datasets import TrainFoldDataset
-from training.utils import resolve_data_files, get_trainable_params, snapshot_trainable_state, restore_trainable_state
+from training.utils import resolve_data_files, snapshot_trainable_state, restore_trainable_state
 from utils import write_jsonl, SummaryReport
 
 TAG_REQ, TAG_WORK, TAG_STOP = 1, 2, 3
@@ -271,6 +271,8 @@ def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, 
 
     del train_dataset
 
+    from training.utils import get_trainable_params
+    trainable_params, _ = get_trainable_params(model)
     last_loss, best_loss, training_time = train_one_fold(
         model,
         train_loader,
@@ -404,10 +406,13 @@ def main(args, config):
     else:
         vision_device, llm_device = pick_worker_devices(worker_idx)
         model = build_model(config, vision_device, llm_device)
+        snapshot_trainable_state(model)
+
         result = None
         while True:
             comm.send(result, dest=0, tag=TAG_REQ)
             result = None
+            restore_trainable_state(model, pristine_state)
 
             st = MPI.Status()
             absl_best_loss, fold_idx = comm.recv(source=0, tag=MPI.ANY_TAG, status=st)
