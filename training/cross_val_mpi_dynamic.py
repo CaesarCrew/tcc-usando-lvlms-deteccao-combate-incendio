@@ -2,6 +2,9 @@ import time
 import datetime as dt
 from datetime import datetime
 
+from mpi4py import MPI
+from ruamel.yaml import YAML
+
 from dataset import create_train_dataset, create_loader
 from dataset.train_datasets import TrainFoldDataset
 from training.utils import resolve_data_files, get_trainable_params, snapshot_trainable_state, restore_trainable_state
@@ -388,10 +391,9 @@ if __name__ == "__main__":
 
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch_size_train", type=int, default=2)
-    parser.add_argument("--learning_rate", type=float, default=1e-5) #2e-5
-    parser.add_argument("--weight_decay", type=float, default=0.01)
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--max_train_tokens", type=int, default=256) # 128
+    parser.add_argument("--output_dir", type=str, default="./cv_outputs")
 
     parser.add_argument("--output_predictions", type=str, default=None)
     parser.add_argument("--report_path", type=str, default="cross_val_report.json")
