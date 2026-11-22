@@ -32,6 +32,10 @@ def forward_train_loss(model, batch, device):
     labels = labels.to(llm_device)
 
     text_embeds = model.embed_tokens(input_ids)
+    vision_dtype = next(model.vision_encoder.parameters()).dtype
+    vision_input = vision_input.to(next(model.vision_encoder.parameters()).device,
+                                dtype=vision_dtype, non_blocking=True)
+    vision_embeds, vision_atts = model.get_vision_embeds(vision_input)
 
     if vision_input is not None:
         vision_input = vision_input.to(device, non_blocking=True)
