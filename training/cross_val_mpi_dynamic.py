@@ -198,6 +198,9 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
 
     vision_dtype = next(model.vision_encoder.parameters()).dtype
 
+    from training.utils import get_trainable_params
+    trainable_params, _ = get_trainable_params(model)
+
     for step, batch in enumerate(train_loader):
         loss = forward_train_loss(model, batch, device)
         loss = loss / grad_accum_steps
