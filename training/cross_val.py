@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from calculate_metrics import process_metrics
 from dataset import create_train_dataset
 from dataset.train_datasets import TrainFoldDataset
-from utils import get_rank, write_jsonl
+from tcc.utils import get_rank, write_jsonl
 from training.utils import resolve_data_files
 
 
