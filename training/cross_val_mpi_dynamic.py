@@ -204,12 +204,13 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config, num_work
     )
 
     vision_dtype = next(model.vision_encoder.parameters()).dtype
+    llm_device = next(model.LLM.parameters()).device
 
     preds = []
     model.eval()
     with torch.inference_mode():
         for idx, vision_input, input_ids, input_atts in val_loader:
-            vision_input = vision_input.to(vision_device, dtype=vision_dtype, non_blocking=True)
+            vision_input = vision_input.to(device, dtype=vision_dtype, non_blocking=True)
             input_ids = input_ids[:, -128:].to(device)
             input_atts = input_atts[:, -128:].to("cuda", non_blocking=True)
 
@@ -271,7 +272,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
         
         if (step % 30 == 0 or step == steps) and step != 0:
             avg = running_loss / step
-            print(f"### Train epoch {epoch}/{epochs}, step {step}/{steps}, avg_loss={avg:.4f}", flush=True)
+            print(f"### Train epoch {epoch}/{epochs}, step {step}/{steps}, avg_loss={running_loss:.4f}", flush=True)
     
     if n_steps % grad_accum_steps != 0:
         if grad_clip > 0:
