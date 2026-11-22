@@ -191,6 +191,50 @@ def write_final_report(save_fold_predictions, pred_out, report_out, fold_reports
     print(f"### Report saved to: {report_out}", flush=True)
     print(f"### {short_report}")
 
+def evaluate_one_fold(model, base_dataset, val_indices, device, config, num_workers):
+    val_subset = Subset(base_dataset, val_indices)
+    val_loader = DataLoader(
+        val_subset,
+        batch_size=args.batch_size_train,
+        num_workers=num_workers,
+        pin_memory=True,
+        shuffle=False,
+        collate_fn=base_dataset.collate_fn,
+        drop_last=False,
+    )
+
+    preds = []
+    model.eval()
+    with torch.inference_mode():
+        for idx, vision_input, input_ids, input_atts in val_loader:
+            vision_input = vision_input.to(device, non_blocking=True)
+            input_ids = input_ids[:, -128:].to(device)
+            input_atts = input_atts[:, -128:].to("cuda", non_blocking=True)
+
+            text_outputs = model.generate(
+                vision_input=vision_input,
+                input_ids=input_ids,
+                input_atts=input_atts,
+                use_nucleus_sampling=config.get("use_nucleus_sampling", False),
+                apply_lemmatizer=config["apply_lemmatizer"],
+                num_beams=config["num_beams"],
+                min_length=config["min_length"],
+                length_penalty=config.get("length_penalty", 1.0),
+                no_repeat_ngram_size=config.get("no_repeat_ngram_size", -1),
+                top_p=config.get("top_p", 0.9),
+                top_k=config.get("top_k", 3),
+                max_new_tokens=config.get("max_new_tokens", 64),
+            )
+
+            for i, output in zip(idx, text_outputs):
+                preds.append({"index": i, "text_output": output.strip()})
+
+            torch.cuda.empty_cache()
+
+    annotations = [base_dataset.data[i] for i in val_indices]
+    metrics = process_metrics(annotations, preds)
+    return preds, metrics
+
 def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_accum_steps, grad_clip):
     model.train()
     running_loss = 0.0
@@ -469,8 +513,7 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_dir", type=str, default="./cv_checkpoints")
 
     parser.add_argument("--disable_stratified", action="store_true")
-
-    #parser.add_argument("--num_workers", default=4, type=int)
+    parser.add_argument("--num_workers", default=4, type=int)
     
     args = parser.parse_args()
 
