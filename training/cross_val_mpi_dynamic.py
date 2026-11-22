@@ -266,7 +266,7 @@ def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, 
         collate_fns=[train_dataset.collate_fn],
         shuffles=[True],
         pin_memories=[using_gpu]
-    )
+    )[0]
     train_dataset_loader_time = time.time() - train_dataset_loader_time
 
     del train_dataset
