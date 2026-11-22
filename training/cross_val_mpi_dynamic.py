@@ -237,7 +237,7 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
             vision_device,
             llm_device,
             epoch,
-            args.epochs,
+            epochs,
             grad_clip=1.0
         )
         if last_loss < best_loss:
@@ -246,7 +246,7 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
 
     return last_loss, best_loss, end_training
 
-def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, folds, rank):
+def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, epochs, folds, rank):
     ## Generating indices for training/validation split
     val_indices = folds[fold_idx]
     train_indices = sorted(list(set(range(len(full_dataset))) - set(val_indices)))
@@ -415,7 +415,7 @@ def main(args, config):
                 break
             # If we continue:
             try:
-                result = run_one_fold(config, vision_device, absl_best_loss, model, full_dataset, fold_idx, folds, rank)
+                result = run_one_fold(config, vision_device, absl_best_loss, model, full_dataset, fold_idx, args.epochs, folds, rank)
                 if result["best_loss"] < absl_best_loss:
                     absl_best_loss = result["best_loss"]
                 
