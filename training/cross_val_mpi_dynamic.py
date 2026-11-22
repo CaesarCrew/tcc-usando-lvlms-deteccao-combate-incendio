@@ -283,7 +283,7 @@ def main(args, config):
 
     print("### Creating dataset for cross-validation", flush=True)
     full_dataset = create_train_dataset("eval", config_for_data)
-    n = len(full_dataset)
+    dataset_size = len(full_dataset)
 
     folds, absl_best_loss, error = None, None, None
     if rank == 0:
@@ -310,7 +310,7 @@ def main(args, config):
 
             error = None
         except Exception as e:
-            folds, absl_best_loss, error = None, str(e)
+            folds, absl_best_loss, error = None, None, str(e)
     
     folds, absl_best_loss, error = comm.bcast((folds, absl_best_loss, error), root=0)
     if error is not None:
