@@ -214,7 +214,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
             optimizer.step()
             running_loss += loss.item() * grad_accum_steps
         
-        if step % 30 == 0 or step == steps:
+        if (step % 30 == 0 or step == steps) and step != 0:
             avg = running_loss / step
             print(f"### Train epoch {epoch}/{epochs}, step {step}/{steps}, avg_loss={avg:.4f}", flush=True)
     
