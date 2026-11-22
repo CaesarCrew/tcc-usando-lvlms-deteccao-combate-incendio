@@ -249,7 +249,7 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
 def run_one_fold(config, absl_best_loss, model, full_dataset, fold_idx, folds, rank):
     ## Generating indices for training/validation split
     val_indices = folds[fold_idx]
-    train_indices = sorted(list(set(range(n)) - set(val_indices)))
+    train_indices = sorted(list(set(range(dataset_size)) - set(val_indices)))
 
     using_gpu = device.type == "cuda"
 
