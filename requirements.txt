@@ -1,6 +1,5 @@
 torch>=1.10.0
 torchvision
-transformers==4.28.1
 einops>=0.4.1
 sentencepiece
 spacy
@@ -8,4 +7,5 @@ streamlit
 timm==0.6.13
 ruamel_yaml
 einops_exts
-spacy
+accelerate
+mpi4py

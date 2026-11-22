@@ -377,6 +377,8 @@ def main(args, config):
             flush=True,
         )
 
+        restore_trainable_state(model, pristine_state)
+
         train_loader_dataset_build_time = time.time()
         train_dataset = TrainFoldDataset(
             base_dataset=full_dataset,
@@ -396,6 +398,8 @@ def main(args, config):
         )
         train_loader_dataset_build_time = time.time() - train_loader_dataset_build_time
 
+        del train_dataset
+
         optimizer = torch.optim.AdamW(trainable_params, lr=config["learning_rate"], weight_decay=config["weight_decay"])
 
         t0 = time.time()
@@ -411,6 +415,8 @@ def main(args, config):
         )
         train_time = time.time() - t0
 
+        del train_loader
+
         t1 = time.time()
         preds, metrics = evaluate_one_fold(
             model=model,
@@ -421,6 +427,8 @@ def main(args, config):
             num_workers=args.num_workers,
         )
         evaluate_time = timte.time() - t1
+
+        del full_dataset
 
         for p in preds:
             p["fold"] = fold_idx+1

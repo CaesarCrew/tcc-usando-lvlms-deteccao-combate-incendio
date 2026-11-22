@@ -16,7 +16,7 @@
 image_rdir: "./images/"
 
 # put your test file in jsonl format
-test_files: [ "./data/Kaggle_Test_All.jsonl" ]
+test_files: [ "./data/Kaggle_Test_Fast.jsonl" ]
 
 # change this prompt for different task
 prompt: "User: {question}\nBot:"
@@ -38,6 +38,7 @@ LLM: 'vicuna-7b'
 use_flash_attn: False
 use_adapter: True
 adapter_freq: 4
+mmap_llm: False
 
 bridge: 'resampler'
 bridge_depth: 3

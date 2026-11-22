@@ -46,7 +46,10 @@ def make_cross_validation(test_dataset, model, device, config, k=5, fold_seed=12
         fold_loader = create_loader([fold_ds],
                                     batch_size=[config['batch_size_test']],
                                     num_workers=[4],
-                                    collate_fns=[test_dataset.collate_fn])[0]
+                                    collate_fns=[test_dataset.collate_fn],
+                                    shuffles=[True],
+                                    pin_memories=[True]
+                                    )[0]
         
         start_time_fold = time.time()
         fold_preds = evaluation(model, fold_loader, device, config)

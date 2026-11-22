@@ -43,7 +43,7 @@ def evaluation(model, data_loader, device, config):
         input_atts = input_atts[:, -128:]
         input_atts = input_atts.to(device)#.half()
 
-        with torch.amp.autocast('cuda'):
+        with torch.amp.autocast(device_type=device.type):
             text_outputs = model.generate(
                 vision_input=vision_input,
                 input_ids=input_ids, input_atts=input_atts,
@@ -65,36 +65,28 @@ def evaluation(model, data_loader, device, config):
 
 
 def main(args, config):
-    print("### Evaluating", flush=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     seed = args.seed + get_rank()
     torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
     cudnn.benchmark = True
 
     #print("config:", json.dumps(config), flush=True)
 
     print("### Creating model", flush=True)
     from models.lynx import LynxBase
-    model = LynxBase(config=config, freeze_vit=config['freeze_vit'], freeze_llm=config['freeze_llm'], load_bridge=False)
-    model.vision_encoder = model.vision_encoder.to(device).half()
-    model.bridge = model.bridge.to(device).half()
+    model = LynxBase(config=config, freeze_vit=config['freeze_vit'], freeze_llm=config['freeze_llm'])
+    model.vision_encoder = model.vision_encoder.to(device)#.half()
+    model.bridge = model.bridge.to(device)#.half()
     model.LLM = model.LLM.to("cpu")#.float()
 
     for _, param in model.named_parameters():
         param.requires_grad = False
 
-    model.eval()
-
     print("### Total Params: ", sum(p.numel() for p in model.parameters()))
 
     print("### Creating datasets", flush=True)
     test_dataset = create_dataset('eval', config)
-
-    #prediction_test_data = ''
-    #total_time_str = ''
 
     if args.cross_val:
         k = args.k_folds
@@ -103,7 +95,7 @@ def main(args, config):
     else:
         start_time = time.time()
         print("### Start evaluating", flush=True)
-        test_loader = create_loader([test_dataset], batch_size=[config['batch_size_test']], num_workers=[4],collate_fns=[test_dataset.collate_fn])[0]
+        test_loader = create_loader([test_dataset], batch_size=[config['batch_size_test']], num_workers=[4],collate_fns=[test_dataset.collate_fn], shuffles=[False], pin_memories=[True])[0]
         predictions = evaluation(model, test_loader, device, config)
 
         total_time = time.time() - start_time
@@ -121,7 +113,7 @@ def main(args, config):
                 metrics["mcc_nofire"]
             )
         print(f"###{metrics_i}", flush=True)
-        prediction_test_data = 'Number of images: ' + str(len(test_dataset)) + '\n' + metrics_i
+        prediction_test_data = 'Time taken: ' + total_time_str + ' Number of images: ' + str(len(test_dataset)) + '\n' + metrics_i + '\n'
 
     # Save combined
     current_datetime = datetime.now()
@@ -131,7 +123,7 @@ def main(args, config):
     write_txt_doc(config['test_files'], prediction_test_data, args.output_path, args.fold_seed if args.cross_val else args.seed, new_output_path)
     print("### Data of the prediction saved to:", args.output_path, flush=True)
 
-    print(f'### {total_time_str}' if args.cross_val else f'### {total_time_str} \n ### {per_fold_times}', flush=True)
+    print(f'### {total_time_str} \n ### {per_fold_times}' if args.cross_val else f'### {total_time_str}', flush=True)
 
 
 if __name__ == '__main__':
