@@ -204,12 +204,17 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config, num_work
     )
 
     vision_dtype = next(model.vision_encoder.parameters()).dtype
-    
+
     preds = []
     model.eval()
     with torch.inference_mode():
         for idx, vision_input, input_ids, input_atts in val_loader:
-            vision_input = vision_input.to(device, non_blocking=True)
+            vision_dtype = next(model.vision_encoder.parameters()).dtype
+            vision_input = vision_input.to(
+                next(model.vision_encoder.parameters()).device,
+                dtype=vision_dtype,
+                non_blocking=True
+            )
             input_ids = input_ids[:, -128:].to(device)
             input_atts = input_atts[:, -128:].to("cuda", non_blocking=True)
 
