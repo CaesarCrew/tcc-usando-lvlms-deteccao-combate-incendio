@@ -64,6 +64,47 @@ def forward_train_loss(model, batch, device):
     )
     return outputs.loss
 
+def build_model(config, device, llm_device="cpu", train_adapters=False):
+    from models.lynx import LynxBase
+
+    if torch.cuda.is_available() and device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+
+    model = LynxBase(
+        config=config,
+        freeze_vit=config["freeze_vit"],
+        freeze_llm=config["freeze_llm"],
+        load_bridge=False,
+    )
+
+    if device.type == "cuda":
+        model.vision_encoder = model.vision_encoder.to(device).half()
+        model.bridge = model.bridge.to(device).half()
+    else:
+        model.vision_encoder = model.vision_encoder.to(device)
+        model.bridge = model.bridge.to(device)
+
+    if llm_device != "cpu":
+        print("### For cross-validation, keeping LLM on CPU to match generate.py placement", flush=True)
+    
+    llm_device = torch.device("cpu")
+    model.LLM = model.LLM.to(llm_device)
+
+    for _, p in model.named_parameters():
+        p.requires_grad = False
+
+    for _, p in model.bridge.named_parameters():
+        p.requires_grad = True
+
+    if train_adapters:
+        for n, p in model.LLM.named_parameters():
+            if "adapter" in n:
+                p.requires_grad = True
+            else:
+                p.requires_grad = False
+
+    return model
+
 def setup_mpi():
     ''' Function to create the world communicator between nodes and also the shared memory
         communicator for intra-node communication
