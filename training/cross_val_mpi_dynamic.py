@@ -232,13 +232,13 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
         print(f"### Starting epoch", flush=True)
         last_loss = train_one_epoch(
             model,
-            train_loader,
             optimizer,
-            vision_device,
-            llm_device,
+            train_loader,
+            device,
             epoch,
             epochs,
-            grad_clip=1.0
+            grad_accum_steps,
+            grad_clip
         )
         if last_loss < best_loss:
             best_loss = last_loss
