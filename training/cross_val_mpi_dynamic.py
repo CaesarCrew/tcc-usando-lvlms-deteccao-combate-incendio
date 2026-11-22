@@ -246,7 +246,7 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
 
     return last_loss, best_loss, end_training
 
-def run_one_fold(config, absl_best_loss, model, full_dataset, fold_idx, folds, rank):
+def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, folds, rank):
     ## Generating indices for training/validation split
     val_indices = folds[fold_idx]
     train_indices = sorted(list(set(range(len(full_dataset))) - set(val_indices)))
@@ -370,8 +370,18 @@ def main(args, config):
             while not comm.Iprobe(source=MPI.ANY_SOURCE, tag=TAG_REQ, status=st):
                 time.sleep(0.2)                      # idle without burning a core
             src = st.Get_source()
+
             msg = comm.recv(source=src, tag=TAG_REQ)
+            if isinstance(msg, dict) and "error" in msg:
+                print(f"### worker {src} failed: {msg['error']}", flush=True)
+                comm.Abort(1)
+
             if msg is not None:
+                if not (isinstance(msg, dict) and "report" in msg and "predictions" in msg):
+                    keys = list(msg) if isinstance(msg, dict) else None
+                    print(f"### dispatcher: unexpected message from rank {src}: "
+                        f"type={type(msg).__name__}, keys={keys}", flush=True)
+                    comm.Abort(1)
                 fold_reports.append(msg["report"])
                 all_predictions.extend(msg["predictions"])
                 if msg["best_loss"] < absl_best_loss:
@@ -405,7 +415,7 @@ def main(args, config):
                 break
             # If we continue:
             try:
-                result = run_one_fold(config, absl_best_loss, model, full_dataset, fold_idx, folds, rank)
+                result = run_one_fold(config, vision_device, absl_best_loss, model, full_dataset, fold_idx, folds, rank)
                 if result["best_loss"] < absl_best_loss:
                     absl_best_loss = result["best_loss"]
                 
