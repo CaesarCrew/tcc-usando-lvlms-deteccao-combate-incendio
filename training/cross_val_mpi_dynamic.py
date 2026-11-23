@@ -602,6 +602,12 @@ def main(args, config):
         vision_device, llm_device = pick_worker_devices(worker_idx)
         model = build_model(config, vision_device, llm_device)
         #pristine_state = snapshot_trainable_state(model)
+
+        key = vision_cache_key(config, data_files)
+        if args.build_vision_cache:
+            model = build_model(config, vision_device, llm_device)   # needs the ViT this once
+            build_vision_cache(model, full_dataset, args.vision_cache_dir, key)
+
         if True: # create flag for caching vision model
             vision_cache = VisionCache(args.vision_cache_dir, key)
             assert len(vision_cache) == dataset_size
