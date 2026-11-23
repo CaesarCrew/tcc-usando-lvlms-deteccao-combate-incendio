@@ -481,7 +481,7 @@ def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, 
             model=model,
             base_dataset=full_dataset,
             val_indices=val_indices,
-            vision_cache=,
+            vision_cache=vision_cache,
             config=config
         )
     else:
