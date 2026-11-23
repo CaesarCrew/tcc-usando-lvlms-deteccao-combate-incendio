@@ -247,31 +247,47 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config, num_work
     return preds, metrics
 
 def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_accum_steps, grad_clip):
-    model.train()
+    import math
+
     running_loss = 0.0
     steps = len(train_loader)
+    n_steps, n_micro = 0
 
     vision_dtype = next(model.vision_encoder.parameters()).dtype
 
     from training.utils import get_trainable_params
     trainable_params, _ = get_trainable_params(model)
 
-    n_steps = 0
+    model.train()
     for step, batch in enumerate(train_loader):
-        loss = forward_train_loss(model, batch, device)
-        loss = loss / grad_accum_steps
+        loss = forward_train_loss(model, batch, device) / grad_accum_steps
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         
-        ## If we accumulated grad_accum_steps, apply gradients
-        if (step + 1) % grad_accum_steps == 0:
+        ## Calculate true loss value
+        loss_val = loss.item() * grad_accum_steps
+
+        ## Assert loss value is not infinite
+        if not math.isfinite(loss_val):
+            labels = batch[-1]
+            raise RuntimeError(
+                f"non-finite loss {loss_val} at step {step}; "
+                f"supervised tokens in batch = {(labels != -100).sum().item()}, "
+                f"LLM dtype = {next(model.LLM.parameters()).dtype}"
+            )
+
+        running_loss += loss_val
+        n_micro += 1
+
+        ## If we accumulated grad_accum_steps or is the last step, apply gradients
+        if (step + 1) % grad_accum_steps == 0 or (step + 1) == steps:
             if grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(trainable_params, grad_clip)
             optimizer.step()
-            running_loss += loss.item() * grad_accum_steps
+            optimizer.zero_grad(set_to_none=True)
             n_steps += 1
         
-        if (step % 30 == 0 or step == steps) and step != 0:
+        if ((step + 1) % 30 == 0 or (step + 1) == steps) and step != 0:
             avg = running_loss / step
             print(f"### Train epoch {epoch}/{epochs}, step {step}/{steps}, avg_loss={running_loss:.4f}", flush=True)
     
