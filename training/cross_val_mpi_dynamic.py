@@ -207,12 +207,13 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config, num_work
     llm_device = next(model.LLM.parameters()).device
 
     preds = []
+
     model.eval()
     with torch.inference_mode():
         for idx, vision_input, input_ids, input_atts in val_loader:
-            vision_input = vision_input.to(device, dtype=vision_dtype, non_blocking=True)
+            vision_input = vision_input.to(llm_device, dtype=vision_dtype, non_blocking=True)
             input_ids = input_ids[:, -128:].to(device)
-            input_atts = input_atts[:, -128:].to("cuda", non_blocking=True)
+            input_atts = input_atts[:, -128:].to(llm_device, non_blocking=True)
 
             text_embeds = model.embed_tokens(input_ids)
             vision_embeds, vision_atts = model.get_vision_embeds(vision_input)   # on vision device
