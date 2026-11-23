@@ -306,7 +306,6 @@ def evaluate_generation_cached(model, base_dataset, config, val_indices, vision_
         drop_last=False,
     )
 
-    vision_dtype = next(model.vision_encoder.parameters()).dtype
     llm_device = next(model.LLM.parameters()).device
     preds = []
 
