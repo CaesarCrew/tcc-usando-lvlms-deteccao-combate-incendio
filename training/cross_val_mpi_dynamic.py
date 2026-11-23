@@ -43,7 +43,8 @@ def forward_train_loss(model, batch, device):
         with torch.set_grad_enabled(not model.freeze_vit):
             vision_embeds, vision_atts = model.get_vision_embeds(vision_input)
 
-        v2t_feats, v2t_atts = model.bridge(vision_embeds=vision_embeds, vision_atts=vision_atts)
+        bridge_dtype = next(model.bridge.parameters()).dtype
+        v2t_feats, v2t_atts = model.bridge(vision_embeds=vision_embeds.to(bridge_dtype), vision_atts=vision_atts)
         v2t_feats = v2t_feats.to(llm_device, dtype=text_embeds.dtype)
         v2t_atts = v2t_atts.to(llm_device)
 
