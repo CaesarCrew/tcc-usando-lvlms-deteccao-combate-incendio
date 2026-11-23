@@ -227,14 +227,14 @@ def make_stratified_k_folds(annotations, k, seed=123):
 
     return folds
 
-def write_final_report(save_fold_predictions, pred_out, report_out, fold_reports, all_predictions):
+def write_final_report(save_fold_predictions, pred_out, report_out, fold_reports, all_predictions, taken_time):
 
     if save_fold_predictions:
         write_jsonl(all_predictions, pred_out, 'w')
         print(f"### Saved predictions: {pred_out}", flush=True)
 
     aggregate = summary_report.aggregate(fold_reports)
-    full_report = summary_report.full(report_out, aggregate, taken_time, gathered_rank_times)
+    full_report = summary_report.full(report_out, aggregate, taken_time)
     short_report = summary_report.short(time_taken, aggregate)
 
     write_json(full_report, report_out)
@@ -336,7 +336,9 @@ def evaluate_generation_cached(model, base_dataset, config, val_indices, vision_
             for i, text in zip(idx, model.tokenizer.batch_decode(outputs, skip_special_tokens=True)):
                 preds.append({"index": i, "text_output": text.strip()})
 
-    return preds
+    annotations = [base_dataset.data[i] for i in val_indices]
+    metrics = process_metrics(annotations, preds)
+    return preds, metrics
 
 def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_accum_steps, grad_clip, vision_cache):
     import math
@@ -630,7 +632,7 @@ def main(args, config):
         pred_out = os.path.join(args.output_dir, f"cross_val_predictions_{timestamp}.jsonl")
         report_out = os.path.join(args.output_dir, f"cross_val_report_{timestamp}.json")
 
-        write_final_report(args.save_fold_predictions, pred_out, report_out, fold_reports, all_predictions)
+        write_final_report(args.save_fold_predictions, pred_out, report_out, fold_reports, all_predictions, taken_time)
 
     ## Worker code
     else:
@@ -687,22 +689,21 @@ if __name__ == "__main__":
     parser.add_argument("--data_files", type=str, nargs="*", default=None)
     parser.add_argument("--k_folds", type=int, default=5, required=True)
     parser.add_argument("--fold_seed", type=int, default=123)
+    parser.add_argument("--num_workers", default=4, type=int)
 
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch_size_train", type=int, default=2)
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--max_train_tokens", type=int, default=256) # 128
-    parser.add_argument("--output_dir", type=str, default="./cv_outputs")
 
     parser.add_argument("--output_predictions", type=str, default=None)
     parser.add_argument("--report_path", type=str, default="cross_val_report.json")
+    parser.add_argument("--disable_stratified", action="store_true")
     parser.add_argument("--save_fold_predictions", action="store_true")
     parser.add_argument("--save_fold_checkpoints", action="store_true")
     parser.add_argument("--checkpoint_dir", type=str, default="./cv_checkpoints")
     parser.add_argument("--vision_cache_dir", type=str, default="./vit_cache")
-
-    parser.add_argument("--disable_stratified", action="store_true")
-    parser.add_argument("--num_workers", default=4, type=int)
+    parser.add_argument("--output_dir", type=str, default="./cv_outputs")
     
     args = parser.parse_args()
 
