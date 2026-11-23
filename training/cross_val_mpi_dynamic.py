@@ -294,7 +294,7 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config):
     return preds, metrics
 
 @torch.no_grad()
-def evaluate_generation_cached(model, base_dataset, vision_cache, config, num_workers):
+def evaluate_generation_cached(model, base_dataset, config, num_workers, vision_cache):
     val_subset = Subset(base_dataset, val_indices)
     val_loader = DataLoader(
         val_subset,
@@ -339,7 +339,7 @@ def evaluate_generation_cached(model, base_dataset, vision_cache, config, num_wo
 
     return preds
 
-def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_accum_steps, grad_clip):
+def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_accum_steps, grad_clip, vision_cache):
     import math
 
     running_loss = 0.0
@@ -400,7 +400,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
     
     return running_loss / max(1, steps)
 
-def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, weight_decay, grad_accum_steps=1, grad_clip=1.0):
+def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, weight_decay, grad_accum_steps=1, grad_clip=1.0, vision_cache=None):
     optimizer = make_optimizer(trainable_params, lr, weight_decay, True)
     
     ## Loss metrics
@@ -420,7 +420,8 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
             epoch,
             epochs,
             grad_accum_steps,
-            grad_clip
+            grad_clip,
+            vision_cache
         )
         if last_loss < best_loss:
             best_loss = last_loss
@@ -469,7 +470,8 @@ def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, 
         trainable_params, 
         lr=config["learning_rate"],
         weight_decay=config["weight_decay"],
-        grad_accum_steps=config["grad_accum_steps"]
+        grad_accum_steps=config["grad_accum_steps"],
+        vision_cache=vision_cache,
     )
     
     ## If it has the best loss, save this model
@@ -482,8 +484,8 @@ def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, 
             model=model,
             base_dataset=full_dataset,
             val_indices=val_indices,
-            vision_cache=vision_cache,
-            config=config
+            config=config,
+            vision_cache=vision_cache
         )
     else:
         preds, metrics = evaluate_one_fold(
