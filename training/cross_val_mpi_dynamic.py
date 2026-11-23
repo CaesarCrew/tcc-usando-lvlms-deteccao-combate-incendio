@@ -33,12 +33,13 @@ def forward_train_loss(model, batch, device):
 
     text_embeds = model.embed_tokens(input_ids)
     vision_dtype = next(model.vision_encoder.parameters()).dtype
-    vision_input = vision_input.to(next(model.vision_encoder.parameters()).device,
-                                dtype=vision_dtype, non_blocking=True)
-    vision_embeds, vision_atts = model.get_vision_embeds(vision_input)
 
     if vision_input is not None:
-        vision_input = vision_input.to(device, non_blocking=True)
+        vision_input = vision_input.to(
+            next(model.vision_encoder.parameters()).device,
+            dtype=vision_dtype,
+            non_blocking=True
+        )
         with torch.set_grad_enabled(not model.freeze_vit):
             vision_embeds, vision_atts = model.get_vision_embeds(vision_input)
 
@@ -277,7 +278,11 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
             if grad_clip > 0:
                 torch.nn.utils.clip_grad_norm_(trainable_params, grad_clip)
             optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
+
+            bad = [n for n, p in model.named_parameters() if p.requires_grad and not torch.isfinite(p).all()]
+            if bad:
+                raise RuntimeError(f"weights became non-finite after optimizer.step(): {bad[:5]}")
+
             n_steps += 1
         
         if ((step + 1) % 30 == 0 or (step + 1) == steps) and step != 0:
