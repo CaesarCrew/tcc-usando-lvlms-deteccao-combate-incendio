@@ -295,7 +295,7 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config):
 
 @torch.no_grad()
 def evaluate_generation_cached(model, base_dataset, config, num_workers, vision_cache):
-    val_subset = Subset(base_dataset, val_indices)
+    val_subset = CachedEvalDataset(full_dataset, val_indices, vision_cache)
     val_loader = DataLoader(
         val_subset,
         batch_size=args.batch_size_train,
@@ -346,7 +346,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
     steps = len(train_loader)
     n_steps, n_micro = 0, 0
 
-    if not True: # create flag for caching vision model
+    if vision_cache != None:
         vision_dtype = next(model.vision_encoder.parameters()).dtype
 
     from training.utils import get_trainable_params
@@ -354,10 +354,10 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
 
     model.train()
     for step, batch in enumerate(train_loader):
-        if True: # create flag for caching vision model
-            loss = forward_train_loss_cached(model, batch, vision_cache) / grad_accum_steps
-        else:
+        if vision_cache == None:
             loss = forward_train_loss(model, batch, device) / grad_accum_steps
+        else:
+            loss = forward_train_loss_cached(model, batch, vision_cache) / grad_accum_steps
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
@@ -430,70 +430,103 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
     return last_loss, best_loss, end_training
 
 def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, epochs, folds, rank, vision_cache=None):
-    ## Generating indices for training/validation split
-    val_indices = folds[fold_idx]
-    train_indices = sorted(list(set(range(len(full_dataset))) - set(val_indices)))
+    if vision_cache==None: # create flag for caching vision model
+        ## Generating indices for training/validation split
+        val_indices = folds[fold_idx]
+        train_indices = sorted(list(set(range(len(full_dataset))) - set(val_indices)))
 
-    using_gpu = device.type == "cuda"
+        using_gpu = device.type == "cuda"
 
-    train_dataset_loader_time = time.time()
-    train_dataset = TrainFoldDataset(
-        base_dataset=full_dataset,
-        indices=train_indices,
-        max_total_tokens=args.max_train_tokens,
-    )
-    train_loader  = create_loader(
-        [train_dataset],
-        batch_size=[config["batch_size_train"]],
-        num_workers=[config["num_workers"]],
-        collate_fns=[train_dataset.collate_fn],
-        shuffles=[True],
-        pin_memories=[using_gpu]
-    )[0]
-    train_dataset_loader_time = time.time() - train_dataset_loader_time
-
-    del train_dataset
-
-    old_rg = reinit_bridge(model, config, device)
-    new_rg = {n: p.requires_grad for n, p in model.bridge.named_parameters()}
-    assert new_rg == old_rg, f"{tag} rebuilt bridge has different requires_grad than the original"
-    # if adapters_trainable
-    reinit_adapters(model)
-    
-    from training.utils import get_trainable_params
-    trainable_params, _ = get_trainable_params(model)
-    last_loss, best_loss, training_time = train_one_fold(
-        model,
-        train_loader,
-        device,
-        epochs,
-        trainable_params, 
-        lr=config["learning_rate"],
-        weight_decay=config["weight_decay"],
-        grad_accum_steps=config["grad_accum_steps"],
-        vision_cache=vision_cache,
-    )
-    
-    ## If it has the best loss, save this model
-    if best_loss < absl_best_loss:
-        if args.save_fold_checkpoints:
-            save_fold_checkpoint(False, model, rank, fold_idx, epoch, args.checkpoint_dir)
-    
-    if True: # create flag for caching vision model
-        preds, metrics = evaluate_generation_cached(
-            model=model,
+        train_dataset_loader_time = time.time()
+        train_dataset = TrainFoldDataset(
             base_dataset=full_dataset,
-            val_indices=val_indices,
-            config=config,
-            vision_cache=vision_cache
+            indices=train_indices,
+            max_total_tokens=args.max_train_tokens,
         )
-    else:
+        train_loader  = create_loader(
+            [train_dataset],
+            batch_size=[config["batch_size_train"]],
+            num_workers=[config["num_workers"]],
+            collate_fns=[train_dataset.collate_fn],
+            shuffles=[True],
+            pin_memories=[using_gpu]
+        )[0]
+        train_dataset_loader_time = time.time() - train_dataset_loader_time
+
+        del train_dataset
+
+        old_rg = reinit_bridge(model, config, device)
+        new_rg = {n: p.requires_grad for n, p in model.bridge.named_parameters()}
+        assert new_rg == old_rg, f"{tag} rebuilt bridge has different requires_grad than the original"
+        # if adapters_trainable
+        reinit_adapters(model)
+        
+        from training.utils import get_trainable_params
+        trainable_params, _ = get_trainable_params(model)
+        last_loss, best_loss, training_time = train_one_fold(
+            model,
+            train_loader,
+            device,
+            epochs,
+            trainable_params, 
+            lr=config["learning_rate"],
+            weight_decay=config["weight_decay"],
+            grad_accum_steps=config["grad_accum_steps"],
+            vision_cache=vision_cache,
+        )
+        
+        ## If it has the best loss, save this model
+        if best_loss < absl_best_loss:
+            if args.save_fold_checkpoints:
+                save_fold_checkpoint(False, model, rank, fold_idx, epoch, args.checkpoint_dir)
+        
         preds, metrics = evaluate_one_fold(
             model=model,
             base_dataset=full_dataset,
             val_indices=val_indices,
             device=device,
             config=config
+        )
+
+    else:
+        train_dataset = CachedTrainDataset(full_dataset, train_indices, vision_cache,
+                                        max_train_tokens=args.max_train_tokens)
+        train_loader  = create_loader(
+            [train_dataset],
+            batch_size=[config["batch_size_train"]],
+            num_workers=[config["num_workers"]],
+            collate_fns=[train_dataset.collate_fn],
+            shuffles=[True],
+            pin_memories=[using_gpu]
+        )[0]
+        
+        del train_dataset
+        
+        from training.utils import get_trainable_params
+        trainable_params, _ = get_trainable_params(model)
+        last_loss, best_loss, training_time = train_one_fold(
+            model,
+            train_loader,
+            device,
+            epochs,
+            trainable_params, 
+            lr=config["learning_rate"],
+            weight_decay=config["weight_decay"],
+            grad_accum_steps=config["grad_accum_steps"],
+            vision_cache=vision_cache,
+        )
+        
+        ## If it has the best loss, save this model
+        if best_loss < absl_best_loss:
+            if args.save_fold_checkpoints:
+                save_fold_checkpoint(False, model, rank, fold_idx, epoch, args.checkpoint_dir)
+        
+        preds, metrics = evaluate_generation_cached(
+            model=model,
+            base_dataset=full_dataset,
+            val_indices=val_indices,
+            config=config,
+            vision_cache=vision_cache
         )
 
 
