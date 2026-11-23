@@ -312,6 +312,10 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
         running_loss += loss_val
         n_micro += 1
 
+        n = sum(p.numel() for p in model.bridge.parameters())
+        print(f"bridge params: {n/1e6:.1f}M -> ~{n*16/1e9:.2f} GB for fp32 AdamW training")
+        print(f"GPU allocated before optimizer: {torch.cuda.memory_allocated()/1e9:.2f} GB")
+
         ## If we accumulated grad_accum_steps or is the last step, apply gradients
         if (step + 1) % grad_accum_steps == 0 or (step + 1) == steps:
             if grad_clip > 0:
