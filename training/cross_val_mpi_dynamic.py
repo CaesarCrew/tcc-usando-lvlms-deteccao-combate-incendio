@@ -294,12 +294,12 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config):
     return preds, metrics
 
 @torch.no_grad()
-def evaluate_generation_cached(model, base_dataset, config, num_workers, vision_cache):
+def evaluate_generation_cached(model, base_dataset, config, val_indices, vision_cache):
     val_subset = CachedEvalDataset(full_dataset, val_indices, vision_cache)
     val_loader = DataLoader(
         val_subset,
         batch_size=args.batch_size_train,
-        num_workers=num_workers,
+        num_workers=config["num_workers"],
         pin_memory=True,
         shuffle=False,
         collate_fn=base_dataset.collate_fn,
