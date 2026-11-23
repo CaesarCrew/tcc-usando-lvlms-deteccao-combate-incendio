@@ -346,7 +346,8 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
     steps = len(train_loader)
     n_steps, n_micro = 0, 0
 
-    vision_dtype = next(model.vision_encoder.parameters()).dtype
+    if not True: # create flag for caching vision model
+        vision_dtype = next(model.vision_encoder.parameters()).dtype
 
     from training.utils import get_trainable_params
     trainable_params, _ = get_trainable_params(model)
