@@ -658,6 +658,7 @@ if __name__ == "__main__":
     parser.add_argument("--save_fold_predictions", action="store_true")
     parser.add_argument("--save_fold_checkpoints", action="store_true")
     parser.add_argument("--checkpoint_dir", type=str, default="./cv_checkpoints")
+    parser.add_argument("--vision_cache_dir", type=str, default="./vit_cache")
 
     parser.add_argument("--disable_stratified", action="store_true")
     parser.add_argument("--num_workers", default=4, type=int)
