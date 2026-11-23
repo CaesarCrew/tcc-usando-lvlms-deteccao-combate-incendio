@@ -346,7 +346,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
     steps = len(train_loader)
     n_steps, n_micro = 0, 0
 
-    if vision_cache != None:
+    if vision_cache == None:
         vision_dtype = next(model.vision_encoder.parameters()).dtype
 
     from training.utils import get_trainable_params
