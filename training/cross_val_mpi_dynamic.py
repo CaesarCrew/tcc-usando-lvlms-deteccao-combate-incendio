@@ -391,7 +391,7 @@ def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, 
 
     del train_dataset
 
-    old_rg = reinit_bridge(model, config, vision_device)
+    old_rg = reinit_bridge(model, config, device)
     new_rg = {n: p.requires_grad for n, p in model.bridge.named_parameters()}
     assert new_rg == old_rg, f"{tag} rebuilt bridge has different requires_grad than the original"
     # if adapters_trainable
