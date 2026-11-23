@@ -44,7 +44,7 @@ num_bridge_tokens: 32
 ## General
 use_left_pad: True
 lower_text: True
-freeze_vit: False
+freeze_vit: True
 freeze_llm: True
 image_res: 224
 image_mean: [ 0.48145466, 0.4578275, 0.40821073 ]
