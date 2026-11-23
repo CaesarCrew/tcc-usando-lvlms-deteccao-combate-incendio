@@ -430,13 +430,13 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
     return last_loss, best_loss, end_training
 
 def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, epochs, folds, rank, vision_cache=None):
-    if vision_cache==None: # create flag for caching vision model
-        ## Generating indices for training/validation split
+    ## Generating indices for training/validation split
         val_indices = folds[fold_idx]
         train_indices = sorted(list(set(range(len(full_dataset))) - set(val_indices)))
 
         using_gpu = device.type == "cuda"
-
+    
+    if vision_cache==None: # create flag for caching vision model
         train_dataset_loader_time = time.time()
         train_dataset = TrainFoldDataset(
             base_dataset=full_dataset,
