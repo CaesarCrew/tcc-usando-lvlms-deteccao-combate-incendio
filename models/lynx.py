@@ -26,7 +26,7 @@ from einops import rearrange
 
 from timm.models.layers import trunc_normal_
 
-from additional import build_tokenizer
+from dataset.tokenizers import build_tokenizer
 
 from .vits.eva_vit import interpolate_pos_embed
 
