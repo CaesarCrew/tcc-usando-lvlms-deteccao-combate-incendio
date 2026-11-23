@@ -314,12 +314,8 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
 
         ## If we accumulated grad_accum_steps or is the last step, apply gradients
         if (step + 1) % grad_accum_steps == 0 or (step + 1) == steps:
-            opt_params = [p for g in optimizer.param_groups for p in g["params"]]
-            total_norm = torch.nn.utils.clip_grad_norm_(opt_params, grad_clip if grad_clip > 0 else float("inf"))
-            bad_grads = [n for n, p in model.named_parameters()
-                        if p.requires_grad and p.grad is not None and not torch.isfinite(p.grad).all()]
-            print(f"### loss={loss_val:.4g} grad_norm={total_norm.item():.4g} "
-                f"lr={optimizer.param_groups[0]['lr']} non-finite grads={bad_grads[:5]}", flush=True)
+            if grad_clip > 0:
+                    torch.nn.utils.clip_grad_norm_(trainable_params, grad_clip)
             optimizer.step()
 
             bad = [n for n, p in model.named_parameters() if p.requires_grad and not torch.isfinite(p).all()]
