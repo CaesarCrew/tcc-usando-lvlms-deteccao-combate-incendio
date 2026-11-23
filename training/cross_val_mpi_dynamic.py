@@ -244,7 +244,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
 
     running_loss = 0.0
     steps = len(train_loader)
-    n_steps, n_micro = 0
+    n_steps, n_micro = 0, 0
 
     vision_dtype = next(model.vision_encoder.parameters()).dtype
 
