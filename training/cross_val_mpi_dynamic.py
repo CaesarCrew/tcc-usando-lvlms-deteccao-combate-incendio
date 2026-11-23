@@ -490,11 +490,8 @@ def main(args, config):
         pristine_state = snapshot_trainable_state(model)
 
         result = None
-        import math
-        for n, p in model.bridge.named_parameters():
-            a = p.detach().float().abs().max().item()
-            if not math.isfinite(a) or a > 1e3:
-                print(f"### SUSPICIOUS INIT {n}: max abs = {a}", flush=True)
+        print({str(p.dtype) for n, p in model.named_parameters() if p.requires_grad})
+        print(next(model.bridge.parameters()).dtype)
         while True:
             comm.send(result, dest=0, tag=TAG_REQ)
             result = None
