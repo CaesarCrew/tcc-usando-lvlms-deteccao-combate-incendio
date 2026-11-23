@@ -433,3 +433,39 @@ def _cache_path_for(train_files, cache_dir):
     digest = hashlib.sha1("|".join(sorted(paths)).encode()).hexdigest()[:16]
     os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, f"annotations_{digest}.parquet")
+
+class CachedTrainDataset(LynxTrainDataset):
+    """Same as LynxTrainDataset, but item[1] is the cached vision embedding
+    instead of the raw image tensor. No image is opened or transformed.
+    The inherited collate_fn stacks it like any other tensor."""
+
+    def __init__(self, eval_dataset, indices, vision_cache, max_train_tokens=256):
+        super().__init__(eval_dataset, indices, max_train_tokens=max_train_tokens)
+        self.vision_cache = vision_cache
+
+    def __getitem__(self, idx):
+        data_idx = self.indices[idx]
+        ann = self.eval_dataset.data[data_idx]
+        input_ids, labels = self._build_text_tokens(ann)
+        return ann["index"], self.vision_cache.get(data_idx), input_ids, labels
+
+
+class CachedEvalDataset(Dataset):
+    """Validation items from full_dataset, with item[1] (the image) replaced
+    by its cached embedding. Note: full_dataset[i] still opens and
+    transforms the image before we discard it -- harmless but wasted I/O;
+    avoiding it would mean rebuilding the eval text input ourselves."""
+
+    def __init__(self, full_dataset, indices, vision_cache):
+        self.full_dataset = full_dataset
+        self.indices = list(indices)
+        self.vision_cache = vision_cache
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, i):
+        data_idx = self.indices[i]
+        item = list(self.full_dataset[data_idx])
+        item[1] = self.vision_cache.get(data_idx)
+        return tuple(item)

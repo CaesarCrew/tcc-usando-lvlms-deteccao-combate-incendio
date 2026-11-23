@@ -2,6 +2,15 @@ import json
 import torch
 import torch.nn as nn
 import os
+import gc
+import hashlib
+
+import numpy as np
+import torch
+from torch.utils.data import Dataset, DataLoader
+
+VISION_CONFIG_KEYS = ["image_res", "vision_encoder", "vit_ckpt_path", "use_left_pad"]
+
 
 # Remove when push - prototype to shared memory model
 class LynxFoldModel(nn.Module):
@@ -143,3 +152,171 @@ def resolve_data_files(args, config):
     if "train_files" in config:
         return config["train_files"]
     return config["test_files"]
+
+
+def vision_cache_key(config, data_files):
+    files = [data_files] if isinstance(data_files, str) else sorted(data_files)
+    ident = {
+        "data_files": files,
+        "num_frames": config.get("data", {}).get("num_frames"),
+        **{k: config.get(k) for k in VISION_CONFIG_KEYS},
+    }
+    return hashlib.sha1(json.dumps(ident, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def _paths(cache_dir, key):
+    base = os.path.join(cache_dir, f"vision_{key}")
+    return base + ".npy", base + ".meta.json"
+
+
+def vision_cache_exists(cache_dir, key):
+    # The meta file is written LAST, so its presence means the cache is complete.
+    return os.path.exists(_paths(cache_dir, key)[1])
+
+
+@torch.no_grad()
+def build_vision_cache(model, full_dataset, cache_dir, key, batch_size=16, num_workers=4):
+    emb_path, meta_path = _paths(cache_dir, key)
+    if os.path.exists(meta_path):
+        print(f"### Vision cache already exists: {emb_path}", flush=True)
+        return
+    os.makedirs(cache_dir, exist_ok=True)
+
+    if any(p.requires_grad for p in model.vision_encoder.parameters()):
+        raise RuntimeError("Vision encoder is trainable (freeze_vit=False): its output "
+                           "changes during training, so it can't be cached.")
+
+    model.eval()
+    vparam = next(model.vision_encoder.parameters())
+    # shuffle=False + default sequential sampler -> batches come in dataset
+    # order, so row i of the cache == full_dataset item i == the data_idx
+    # LynxTrainDataset / Subset use.
+    loader = DataLoader(full_dataset, batch_size=batch_size, shuffle=False,
+                        num_workers=num_workers, collate_fn=full_dataset.collate_fn)
+
+    n = len(full_dataset)
+    tmp_path = emb_path + ".tmp"
+    mm, pos, atts_template = None, 0, None
+
+    for batch in loader:
+        vision_input = batch[1].to(vparam.device, dtype=vparam.dtype, non_blocking=True)
+        embeds, atts = model.get_vision_embeds(vision_input)
+
+        if embeds.dtype == torch.float16:
+            np_dtype = np.float16
+        else:
+            embeds = embeds.float()   # bf16 has no numpy dtype; fp32 is exact for it
+            np_dtype = np.float32
+
+        if mm is None:
+            item_shape = tuple(embeds.shape[1:])
+            if tuple(atts.shape) != tuple(embeds.shape[:-1]):
+                raise RuntimeError(f"Unexpected vision_atts shape {tuple(atts.shape)} "
+                                   f"for embeds {tuple(embeds.shape)}")
+            atts_template = atts[0].detach().cpu()
+            size_gb = n * int(np.prod(item_shape)) * np.dtype(np_dtype).itemsize / 1e9
+            print(f"### Building vision cache: {n} items x {item_shape} {np_dtype.__name__} "
+                  f"= {size_gb:.2f} GB on disk -> {emb_path}", flush=True)
+            mm = np.lib.format.open_memmap(tmp_path, mode="w+", dtype=np_dtype, shape=(n,) + item_shape)
+
+        # The cache stores ONE attention mask for every item. Refuse to build
+        # if items actually differ (e.g. variable frame counts with padding).
+        if not torch.equal(atts.detach().cpu(), atts_template.expand_as(atts.cpu())):
+            raise RuntimeError("vision_atts differ between items; this cache stores a single "
+                               "shared mask and can't represent that.")
+
+        b = embeds.shape[0]
+        mm[pos:pos + b] = embeds.cpu().numpy()
+        pos += b
+        if (pos // b) % 20 == 0 or pos == n:
+            print(f"### vision cache: {pos}/{n}", flush=True)
+
+    if pos != n:
+        raise RuntimeError(f"Cached {pos} items but dataset has {n}")
+    mm.flush()
+    del mm
+    os.replace(tmp_path, emb_path)
+
+    meta = {
+        "n": n,
+        "item_shape": list(item_shape),
+        "dtype": np.dtype(np_dtype).name,
+        "atts_template": atts_template.tolist(),
+        "atts_dtype": str(atts_template.dtype).replace("torch.", ""),
+    }
+    with open(meta_path + ".tmp", "w") as f:
+        json.dump(meta, f)
+    os.replace(meta_path + ".tmp", meta_path)   # written last: marks the cache complete
+    print(f"### Vision cache built: {emb_path}", flush=True)
+
+
+class VisionCache:
+    """ Read-only, memory-mapped view of the cached embeddings. Opened lazily
+        in each process (including DataLoader workers), so every rank on a
+        machine shares the same file pages instead of holding its own copy.
+    """
+
+    def __init__(self, cache_dir, key):
+        self.emb_path, meta_path = _paths(cache_dir, key)
+        if not os.path.exists(meta_path):
+            raise FileNotFoundError(f"No complete vision cache at {self.emb_path}. "
+                                    f"Build it first (single process).")
+        with open(meta_path) as f:
+            meta = json.load(f)
+        self.n = meta["n"]
+        self.atts_template = torch.tensor(meta["atts_template"],
+                                          dtype=getattr(torch, meta["atts_dtype"]))
+        self._arr = None
+
+    @property
+    def arr(self):
+        if self._arr is None:
+            self._arr = np.load(self.emb_path, mmap_mode="r")
+        return self._arr
+
+    def __getstate__(self):           # don't pickle the open memmap into workers
+        state = self.__dict__.copy()
+        state["_arr"] = None
+        return state
+
+    def __len__(self):
+        return self.n
+
+    def get(self, i):
+        return torch.from_numpy(np.array(self.arr[i]))   # copy one item out of the mmap
+
+    def batch_atts(self, batch_size, device):
+        shape = (batch_size,) + tuple(self.atts_template.shape)
+        return self.atts_template.to(device).unsqueeze(0).expand(shape).clone()
+
+# =========================================================================
+# Model / optimizer helpers
+# =========================================================================
+
+def drop_vision_encoder(model):
+    """ After the ViT is never used again once training and
+        evaluation read the cache. Frees its GPU memory (and RAM).
+    """
+    model.vision_encoder = None
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def make_optimizer(params, lr, weight_decay, use_8bit=True):
+    if use_8bit:
+        import bitsandbytes as bnb
+        return bnb.optim.AdamW8bit(params, lr=lr, weight_decay=weight_decay)
+    return torch.optim.AdamW(params, lr=lr, weight_decay=weight_decay)
+
+
+# =========================================================================
+# Forward passes that start from cached embeddings
+# =========================================================================
+
+def bridge_from_cache(model, vision_embeds, vision_cache, llm_device, text_dtype):
+    bparam = next(model.bridge.parameters())
+    vision_embeds = vision_embeds.to(bparam.device, dtype=bparam.dtype, non_blocking=True)
+    vision_atts = vision_cache.batch_atts(vision_embeds.shape[0], bparam.device)
+    v2t_feats, v2t_atts = model.bridge(vision_embeds=vision_embeds, vision_atts=vision_atts)
+    return v2t_feats.to(llm_device, dtype=text_dtype), v2t_atts.to(llm_device)

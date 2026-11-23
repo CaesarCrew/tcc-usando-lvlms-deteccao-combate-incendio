@@ -17,8 +17,8 @@ from torch.utils.data import DataLoader, Dataset, Subset
 
 from calculate_metrics import extract_class, process_metrics
 from dataset import create_train_dataset, create_loader
-from dataset.train_datasets import TrainFoldDataset
-from training.utils import resolve_data_files, snapshot_trainable_state, restore_trainable_state
+from dataset.train_datasets import TrainFoldDataset, CachedTrainDataset, CachedEvalDataset
+from training.utils import resolve_data_files, make_optimizer, drop_vision_encoder, bridge_from_cache # snapshot_trainable_state, restore_trainable_state
 from utils import write_jsonl, SummaryReport
 
 TAG_REQ, TAG_WORK, TAG_STOP = 1, 2, 3
@@ -70,13 +70,34 @@ def forward_train_loss(model, batch, device):
     )
     return outputs.loss
 
+def forward_train_loss_cached(model, batch, vision_cache):
+    _, vision_embeds, input_ids, input_atts, labels = batch
+
+    llm_device = next(model.LLM.parameters()).device
+    input_ids = input_ids.to(llm_device)
+    input_atts = input_atts.to(llm_device)
+    labels = labels.to(llm_device)
+
+    text_embeds = model.embed_tokens(input_ids)
+    v2t_feats, v2t_atts = bridge_from_cache(model, vision_embeds, vision_cache,
+                                             llm_device, text_embeds.dtype)
+
+    ignore = torch.full((labels.shape[0], v2t_feats.shape[1]), -100,
+                        dtype=labels.dtype, device=llm_device)
+    outputs = model.LLM(
+        inputs_embeds=torch.cat([v2t_feats, text_embeds], dim=1),
+        attention_mask=torch.cat([v2t_atts, input_atts], dim=1),
+        labels=torch.cat([ignore, labels], dim=1),
+        return_dict=True,
+    )
+    return outputs.loss
+
 def reinit_adapters(model):
-    """Re-initialize every Lynx output_adapter IN PLACE, repeating exactly
-    what Adapter.__init__ does. Same Parameter objects, same device/dtype,
-    same requires_grad -- only the values change. Harmless if the adapters
-    are frozen (they just get reset to a fresh init too -- if you want
-    frozen adapters to keep their PRETRAINED values instead, skip this
-    call when they aren't trainable; see run_fold)."""
+    """ Re-initialize every Lynx output_adapter IN PLACE.
+        Harmless if the adapters are frozen (they just get reset to a fresh init too.
+        If you want frozen adapters to keep their PRETRAINED values instead, skip this
+        call when they aren't trainable
+    """
     n = 0
     for m in model.LLM.modules():
         if type(m).__name__ == "Adapter":
@@ -87,19 +108,11 @@ def reinit_adapters(model):
                 m.scaling.fill_(1.0)
             n += 1
     return n
- 
- 
+
 def reinit_bridge(model, config, vision_device):
-    """Rebuild the bridge from scratch through LynxBase's own method, the
-    same call its __init__ makes. Produces NEW Parameter objects, so the
-    optimizer must be (re)created after this -- run_fold does that.
- 
-    UNVERIFIED (I haven't seen build_bridge's body): check once that
-    (1) it has no side effects you rely on, and (2) the new bridge's
-    requires_grad matches the original. The assert in run_fold catches (2).
-    __init__ also calls self.update_init_params(...) after build_bridge;
-    it's left out here because calling it every fold may append duplicate
-    entries -- add it back if it turns out to matter for training.
+    """ Rebuild the bridge from scratch through LynxBase's own method, the
+        same call its __init__ makes. Produces NEW Parameter objects, so the
+        optimizer must be (re)created after this -- run_fold does that.
     """
     old_requires_grad = {n: p.requires_grad for n, p in model.bridge.named_parameters()}
     bridge, _missing = model.build_bridge(config, load_params=False)
@@ -173,8 +186,9 @@ def setup_mpi():
     return comm, rank, world_size, worker_local_idx
 
 def pick_worker_devices(worker_local_idx):
-    """Vision encoder (+ bridge) on a GPU if one is free for this worker,
-    LLM always on CPU -- matching your current split."""
+    """ Vision encoder (+ bridge) on a GPU if one is free for this worker,
+        LLM always on CPU -- matching your current split.
+    """
     if torch.cuda.is_available() and worker_local_idx < torch.cuda.device_count():
         torch.cuda.set_device(worker_local_idx)
         vision_device = torch.device(f"cuda:{worker_local_idx}")
@@ -231,12 +245,12 @@ def write_final_report(save_fold_predictions, pred_out, report_out, fold_reports
     print(f"### Report saved to: {report_out}", flush=True)
     print(f"### {short_report}")
 
-def evaluate_one_fold(model, base_dataset, val_indices, device, config, num_workers):
+def evaluate_one_fold(model, base_dataset, val_indices, device, config):
     val_subset = Subset(base_dataset, val_indices)
     val_loader = DataLoader(
         val_subset,
         batch_size=args.batch_size_train,
-        num_workers=num_workers,
+        num_workers=config["num_workers"],
         pin_memory=True,
         shuffle=False,
         collate_fn=base_dataset.collate_fn,
@@ -279,6 +293,52 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config, num_work
     metrics = process_metrics(annotations, preds)
     return preds, metrics
 
+@torch.no_grad()
+def evaluate_generation_cached(model, base_dataset, vision_cache, config, num_workers):
+    val_subset = Subset(base_dataset, val_indices)
+    val_loader = DataLoader(
+        val_subset,
+        batch_size=args.batch_size_train,
+        num_workers=num_workers,
+        pin_memory=True,
+        shuffle=False,
+        collate_fn=base_dataset.collate_fn,
+        drop_last=False,
+    )
+
+    vision_dtype = next(model.vision_encoder.parameters()).dtype
+    llm_device = next(model.LLM.parameters()).device
+    preds = []
+
+    model.eval()
+    with torch.inference_mode():
+        for idx, vision_embeds, input_ids, input_atts in val_loader:
+            input_ids = input_ids[:, -128:].to(llm_device)
+            input_atts = input_atts[:, -128:].to(llm_device)
+
+            text_embeds = model.embed_tokens(input_ids)
+            v2t_feats, v2t_atts = bridge_from_cache(model, vision_embeds, vision_cache, 
+                                                    llm_device, text_embeds.dtype)
+
+            outputs = model.LLM.generate(
+                inputs_embeds=torch.cat([v2t_feats, text_embeds], dim=1),
+                attention_mask=torch.cat([v2t_atts, input_atts], dim=1),
+                do_sample=config.get("use_nucleus_sampling", False),
+                top_p=config.get("top_p", 0.9),
+                top_k=config.get("top_k", 3),
+                num_beams=config["num_beams"],
+                max_new_tokens=config.get("max_new_tokens", 64),
+                min_length=config["min_length"],
+                length_penalty=config.get("length_penalty", 1.0),
+                no_repeat_ngram_size=config.get("no_repeat_ngram_size", -1),
+                pad_token_id=model.tokenizer.pad_token_id,
+                eos_token_id=model.tokenizer.eos_token_id,
+            )
+            for i, text in zip(idx, model.tokenizer.batch_decode(outputs, skip_special_tokens=True)):
+                preds.append({"index": i, "text_output": text.strip()})
+
+    return preds
+
 def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_accum_steps, grad_clip):
     import math
 
@@ -293,7 +353,11 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
 
     model.train()
     for step, batch in enumerate(train_loader):
-        loss = forward_train_loss(model, batch, device) / grad_accum_steps
+        if True: # create flag for caching vision model
+            loss = forward_train_loss_cached(model, batch, vision_cache) / grad_accum_steps
+        else:
+            loss = forward_train_loss(model, batch, device) / grad_accum_steps
+
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         
@@ -311,10 +375,6 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
 
         running_loss += loss_val
         n_micro += 1
-
-        n = sum(p.numel() for p in model.bridge.parameters())
-        print(f"bridge params: {n/1e6:.1f}M -> ~{n*16/1e9:.2f} GB for fp32 AdamW training")
-        print(f"GPU allocated before optimizer: {torch.cuda.memory_allocated()/1e9:.2f} GB")
 
         ## If we accumulated grad_accum_steps or is the last step, apply gradients
         if (step + 1) % grad_accum_steps == 0 or (step + 1) == steps:
@@ -340,7 +400,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
     return running_loss / max(1, steps)
 
 def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, weight_decay, grad_accum_steps=1, grad_clip=1.0):
-    optimizer = torch.optim.AdamW(trainable_params, lr=lr, weight_decay=weight_decay)
+    optimizer = make_optimizer(params, lr, weight_decay, True)
     
     ## Loss metrics
     best_loss = 0.0
@@ -367,7 +427,7 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
 
     return last_loss, best_loss, end_training
 
-def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, epochs, folds, rank):
+def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, epochs, folds, rank, vision_cache=None):
     ## Generating indices for training/validation split
     val_indices = folds[fold_idx]
     train_indices = sorted(list(set(range(len(full_dataset))) - set(val_indices)))
@@ -415,15 +475,24 @@ def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, 
     if best_loss < absl_best_loss:
         if args.save_fold_checkpoints:
             save_fold_checkpoint(False, model, rank, fold_idx, epoch, args.checkpoint_dir)
+    
+    if True: # create flag for caching vision model
+        preds, metrics = evaluate_generation_cached(
+            model=model,
+            base_dataset=full_dataset,
+            val_indices=val_indices,
+            vision_cache=,
+            config=config
+        )
+    else:
+        preds, metrics = evaluate_one_fold(
+            model=model,
+            base_dataset=full_dataset,
+            val_indices=val_indices,
+            device=device,
+            config=config
+        )
 
-    preds, metrics = evaluate_one_fold(
-        model=model,
-        base_dataset=full_dataset,
-        val_indices=val_indices,
-        device=device,
-        config=config,
-        num_workers=args.num_workers,
-    )
 
     for p in preds:
         p["fold"] = fold_idx + 1
@@ -452,7 +521,7 @@ def main(args, config):
     config_for_data["test_files"] = data_files
 
     print("### Creating dataset for cross-validation", flush=True)
-    full_dataset = create_train_dataset("eval", config_for_data)
+    full_dataset = create_train_dataset(config_for_data)
     dataset_size = len(full_dataset)
 
     folds, absl_best_loss, error = None, None, None
@@ -533,6 +602,10 @@ def main(args, config):
         vision_device, llm_device = pick_worker_devices(worker_idx)
         model = build_model(config, vision_device, llm_device)
         #pristine_state = snapshot_trainable_state(model)
+        if True: # create flag for caching vision model
+            vision_cache = VisionCache(args.vision_cache_dir, key)
+            assert len(vision_cache) == dataset_size
+            drop_vision_encoder(model)
 
         result = None
         while True:
@@ -546,7 +619,7 @@ def main(args, config):
                 break
             # If we continue:
             try:
-                result = run_one_fold(config, vision_device, absl_best_loss, model, full_dataset, fold_idx, args.epochs, folds, rank)
+                result = run_one_fold(config, vision_device, absl_best_loss, model, full_dataset, fold_idx, args.epochs, folds, rank, vision_cache)
                 if result["best_loss"] < absl_best_loss:
                     absl_best_loss = result["best_loss"]
                 

@@ -70,13 +70,11 @@ def create_dataset(dataset, config):
     else:
         raise NotImplementedError(f"dataset == {dataset}")
 
-def create_train_dataset(dataset, config):
-    if dataset == 'eval':
-        from dataset.train_datasets import LynxTrainDatasetBase
-        train_dataset = LynxTrainDatasetBase(config)
-        return train_dataset
-    else:
-        raise NotImplementedError(f"dataset == {dataset}")
+
+def create_train_dataset(config):
+    from dataset.train_datasets import LynxTrainDatasetBase
+    train_dataset = LynxTrainDatasetBase(config)
+    return train_dataset
 
 
 def create_loader(datasets, batch_size, num_workers, collate_fns, shuffles, pin_memories):
