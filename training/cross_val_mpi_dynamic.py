@@ -69,6 +69,44 @@ def forward_train_loss(model, batch, device):
     )
     return outputs.loss
 
+def reinit_adapters(model):
+    """Re-initialize every Lynx output_adapter IN PLACE, repeating exactly
+    what Adapter.__init__ does. Same Parameter objects, same device/dtype,
+    same requires_grad -- only the values change. Harmless if the adapters
+    are frozen (they just get reset to a fresh init too -- if you want
+    frozen adapters to keep their PRETRAINED values instead, skip this
+    call when they aren't trainable; see run_fold)."""
+    n = 0
+    for m in model.LLM.modules():
+        if type(m).__name__ == "Adapter":
+            m.adapter_norm_before.reset_parameters()
+            m.adapter_down.apply(m._init_weights)
+            m.adapter_up.apply(m._init_weights)
+            with torch.no_grad():
+                m.scaling.fill_(1.0)
+            n += 1
+    return n
+ 
+ 
+def reinit_bridge(model, config, vision_device):
+    """Rebuild the bridge from scratch through LynxBase's own method, the
+    same call its __init__ makes. Produces NEW Parameter objects, so the
+    optimizer must be (re)created after this -- run_fold does that.
+ 
+    UNVERIFIED (I haven't seen build_bridge's body): check once that
+    (1) it has no side effects you rely on, and (2) the new bridge's
+    requires_grad matches the original. The assert in run_fold catches (2).
+    __init__ also calls self.update_init_params(...) after build_bridge;
+    it's left out here because calling it every fold may append duplicate
+    entries -- add it back if it turns out to matter for training.
+    """
+    old_requires_grad = {n: p.requires_grad for n, p in model.bridge.named_parameters()}
+    bridge, _missing = model.build_bridge(config, load_params=False)
+    print({str(p.dtype) for n, p in model.named_parameters() if p.requires_grad})
+    print(next(model.bridge.parameters()).dtype)
+    model.bridge = bridge.to(vision_device)
+    return old_requires_grad
+
 def build_model(config, device, llm_device="cpu", train_adapters=False):
     from models.lynx import LynxBase
 
@@ -353,6 +391,12 @@ def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, 
 
     del train_dataset
 
+    old_rg = reinit_bridge(model, config, vision_device)
+    new_rg = {n: p.requires_grad for n, p in model.bridge.named_parameters()}
+    assert new_rg == old_rg, f"{tag} rebuilt bridge has different requires_grad than the original"
+    # if adapters_trainable
+    reinit_adapters(model)
+    
     from training.utils import get_trainable_params
     trainable_params, _ = get_trainable_params(model)
     last_loss, best_loss, training_time = train_one_fold(
@@ -487,15 +531,13 @@ def main(args, config):
     else:
         vision_device, llm_device = pick_worker_devices(worker_idx)
         model = build_model(config, vision_device, llm_device)
-        pristine_state = snapshot_trainable_state(model)
+        #pristine_state = snapshot_trainable_state(model)
 
         result = None
-        print({str(p.dtype) for n, p in model.named_parameters() if p.requires_grad})
-        print(next(model.bridge.parameters()).dtype)
         while True:
             comm.send(result, dest=0, tag=TAG_REQ)
             result = None
-            restore_trainable_state(model, pristine_state)
+            #restore_trainable_state(model, pristine_state)
 
             st = MPI.Status()
             absl_best_loss, fold_idx = comm.recv(source=0, tag=MPI.ANY_TAG, status=st)
