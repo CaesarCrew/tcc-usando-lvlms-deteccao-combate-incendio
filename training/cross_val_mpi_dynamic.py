@@ -400,7 +400,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
     return running_loss / max(1, steps)
 
 def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, weight_decay, grad_accum_steps=1, grad_clip=1.0):
-    optimizer = make_optimizer(params, lr, weight_decay, True)
+    optimizer = make_optimizer(trainable_params, lr, weight_decay, True)
     
     ## Loss metrics
     best_loss = 0.0
