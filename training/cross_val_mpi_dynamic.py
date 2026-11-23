@@ -295,7 +295,7 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config):
 
 @torch.no_grad()
 def evaluate_generation_cached(model, base_dataset, config, val_indices, vision_cache):
-    val_subset = CachedEvalDataset(full_dataset, val_indices, vision_cache)
+    val_subset = CachedEvalDataset(base_dataset, val_indices, vision_cache)
     val_loader = DataLoader(
         val_subset,
         batch_size=args.batch_size_train,
