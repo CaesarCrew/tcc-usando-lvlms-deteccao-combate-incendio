@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from calculate_metrics import extract_class, process_metrics
 from dataset import create_train_dataset, create_loader
 from dataset.train_datasets import TrainFoldDataset, CachedTrainDataset, CachedEvalDataset
-from training.utils import resolve_data_files, make_optimizer, drop_vision_encoder, bridge_from_cache # snapshot_trainable_state, restore_trainable_state
+from training.utils import resolve_data_files, make_optimizer, drop_vision_encoder, bridge_from_cache, VisionCache # snapshot_trainable_state, restore_trainable_state
 from utils import write_jsonl, SummaryReport
 
 TAG_REQ, TAG_WORK, TAG_STOP = 1, 2, 3
