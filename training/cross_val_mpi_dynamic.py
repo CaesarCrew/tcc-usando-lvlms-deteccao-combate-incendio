@@ -697,7 +697,8 @@ def main(args, config):
     else:
         vision_device, llm_device = pick_worker_devices(worker_idx)
 
-        use_cache = process_use_cache(cache_hosts, True)
+        host = MPI.Get_processor_name()
+        use_cache = process_use_cache(host, cache_hosts, True)
         try:
             model_build_time = time.time()
             model = build_model(config, vision_device, llm_device)
