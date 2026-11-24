@@ -341,6 +341,7 @@ def setup_node_vision_cache(model, full_dataset, local_comm, is_worker,
  
     host = MPI.Get_processor_name()
     use_cache = is_worker and (host in cache_hosts or host.split(".")[0] in cache_hosts)
+    print(f"### Host = {host}, use cache = {use_cache}", flush=True)
  
     # Sub-communicator of only the cache-using workers on this host.
     # Split is collective over local_comm, so every rank on the host calls it.
