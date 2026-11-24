@@ -344,7 +344,7 @@ def setup_node_vision_cache(model, full_dataset, local_comm, is_worker,
     from mpi4py import MPI
  
     host = MPI.Get_processor_name()
-    process_use_cache(cache_hosts, is_worker):
+    process_use_cache(cache_hosts, is_worker)
     print(f"### Host = {host}, use cache = {use_cache}", flush=True)
  
     # Sub-communicator of only the cache-using workers on this host.
