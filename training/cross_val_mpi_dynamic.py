@@ -561,6 +561,8 @@ def main(args, config):
     full_dataset = create_train_dataset(config_for_data)
     dataset_size = len(full_dataset)
 
+    cache_hosts = set(args.vision_cache_hosts.split(",")) if args.vision_cache_hosts else set()
+
     folds, absl_best_loss, summary_report, error = None, None, None, None
     if rank == 0:
         try:
@@ -655,7 +657,6 @@ def main(args, config):
         #pristine_state = snapshot_trainable_state(model)
 
         if True: # create flag for caching vision model
-            cache_hosts = set(args.vision_cache_hosts.split(",")) if args.vision_cache_hosts else set()
             key = vision_cache_key(config, data_files)
             model = build_model(config, vision_device, llm_device)
             build_vision_cache(model, full_dataset, args.vision_cache_dir, key)
