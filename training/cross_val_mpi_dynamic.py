@@ -183,7 +183,7 @@ def setup_mpi():
     dispatcher = local_comm.allreduce(1 if rank == 0 else 0, op=MPI.SUM)
     worker_local_idx = local_rank - dispatcher
  
-    return comm, rank, world_size, worker_local_idx
+    return comm, rank, world_size, worker_local_idx, local_comm
 
 def pick_worker_devices(worker_local_idx):
     """ Vision encoder (+ bridge) on a GPU if one is free for this worker,
@@ -548,7 +548,7 @@ def run_one_fold(summary_report, config, device, absl_best_loss, model, full_dat
     return {"best_loss": best_loss, "report": fold_report_line, "predictions":preds}
 
 def main(args, config):
-    comm, rank, world_size, worker_idx = setup_mpi()    
+    comm, rank, world_size, worker_idx, local_comm = setup_mpi()    
     torch.set_num_threads(int(os.environ["OMP_NUM_THREADS"]))
     cudnn.benchmark = True
 
