@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from calculate_metrics import extract_class, process_metrics
 from dataset import create_train_dataset, create_loader
 from dataset.train_datasets import TrainFoldDataset, CachedTrainDataset, CachedEvalDataset
-from training.utils import resolve_data_files, make_optimizer, VisionCache, vision_cache_key, build_vision_cache, bridge_from_cache, setup_node_vision_cache # snapshot_trainable_state, restore_trainable_state
+from training.utils import resolve_data_files, make_optimizer, VisionCache, vision_cache_key, build_vision_cache, bridge_from_cache, setup_node_vision_cache, process_use_cache # snapshot_trainable_state, restore_trainable_state
 from utils import write_jsonl, SummaryReport
 
 TAG_REQ, TAG_WORK, TAG_STOP, TAG_BUILT, TAG_GO = 1, 2, 3, 4, 5
@@ -464,14 +464,14 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
 
     return last_loss, best_loss, end_training
 
-def run_one_fold(summary_report, config, device, absl_best_loss, model, full_dataset, fold_idx, epochs, folds, rank, vision_cache=None):
+def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, model, full_dataset, fold_idx, epochs, folds, rank, vision_cache=None):
     ## Generating indices for training/validation split
     val_indices = folds[fold_idx]
     train_indices = sorted(list(set(range(len(full_dataset))) - set(val_indices)))
 
     using_gpu = device.type == "cuda"
     
-    if vision_cache==None: # create flag for caching vision model
+    if use_cache or vision_cache==None: # create flag for caching vision model
         train_dataset_loader_time = time.time()
         train_dataset = TrainFoldDataset(
             base_dataset=full_dataset,
@@ -690,6 +690,8 @@ def main(args, config):
     ## Worker code
     else:
         vision_device, llm_device = pick_worker_devices(worker_idx)
+
+        use_cache = process_use_cache(cache_hosts, True)
         try:
             model_build_time = time.time()
             model = build_model(config, vision_device, llm_device)
@@ -700,7 +702,7 @@ def main(args, config):
         except Exception as e:
                 model, model_build_time, error = None, None, repr(e)
         
-        if error == None:
+        if error == None and True: # create flag for caching vision model
             report_built(comm, model_build_time, error)
             vision_cache = setup_node_vision_cache(None, full_dataset, local_comm, is_worker=True,
                             cache_hosts=cache_hosts, cache_dir=args.vision_cache_dir, key=key)
@@ -717,7 +719,7 @@ def main(args, config):
                 break
             # If we continue:
             try:
-                result = run_one_fold(summary_report, config, vision_device, absl_best_loss, model, full_dataset, fold_idx, args.epochs, folds, rank, vision_cache)
+                result = run_one_fold(use_cache, summary_report, config, vision_device, absl_best_loss, model, full_dataset, fold_idx, args.epochs, folds, rank, vision_cache)
                 if result["best_loss"] < absl_best_loss:
                     absl_best_loss = result["best_loss"]
                 

@@ -314,6 +314,10 @@ def make_optimizer(params, lr, weight_decay, use_8bit=True):
 # Forward passes that start from cached embeddings
 # =========================================================================
 
+def process_use_cache(cache_hosts, is_worker):
+    use_cache = is_worker and (host in cache_hosts or host.split(".")[0] in cache_hosts)
+    return use_cache
+
 def bridge_from_cache(model, vision_embeds, vision_cache, llm_device, text_dtype):
     bparam = next(model.bridge.parameters())
     vision_embeds = vision_embeds.to(bparam.device, dtype=bparam.dtype, non_blocking=True)
@@ -340,7 +344,7 @@ def setup_node_vision_cache(model, full_dataset, local_comm, is_worker,
     from mpi4py import MPI
  
     host = MPI.Get_processor_name()
-    use_cache = is_worker and (host in cache_hosts or host.split(".")[0] in cache_hosts)
+    process_use_cache(cache_hosts, is_worker):
     print(f"### Host = {host}, use cache = {use_cache}", flush=True)
  
     # Sub-communicator of only the cache-using workers on this host.
