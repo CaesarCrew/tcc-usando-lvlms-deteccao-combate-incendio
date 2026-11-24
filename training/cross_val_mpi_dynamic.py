@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from calculate_metrics import extract_class, process_metrics
 from dataset import create_train_dataset, create_loader
 from dataset.train_datasets import TrainFoldDataset, CachedTrainDataset, CachedEvalDataset
-from training.utils import resolve_data_files, make_optimizer, drop_vision_encoder, VisionCache, vision_cache_key, build_vision_cache, bridge_from_cache # snapshot_trainable_state, restore_trainable_state
+from training.utils import resolve_data_files, make_optimizer, drop_vision_encoder, VisionCache, vision_cache_key, build_vision_cache, bridge_from_cache, setup_node_vision_cache # snapshot_trainable_state, restore_trainable_state
 from utils import write_jsonl, SummaryReport
 
 TAG_REQ, TAG_WORK, TAG_STOP = 1, 2, 3
@@ -609,6 +609,10 @@ def main(args, config):
         fold_reports, all_predictions = [], []
         active = world_size - 1
 
+        if True: # create flag for caching vision model
+            setup_node_vision_cache(None, full_dataset, local_comm, is_worker=False,
+                            cache_hosts=cache_hosts, cache_dir=args.vision_cache_dir, key=key)
+
         global_start_time = time.time()
         while active:
             st = MPI.Status()
@@ -624,8 +628,7 @@ def main(args, config):
             if msg is not None:
                 if not (isinstance(msg, dict) and "report" in msg and "predictions" in msg):
                     keys = list(msg) if isinstance(msg, dict) else None
-                    print(f"### dispatcher: unexpected message from rank {src}: "
-                        f"type={type(msg).__name__}, keys={keys}", flush=True)
+                    print(f"### Unexpected message from rank {src}: type={type(msg).__name__}, keys={keys}", flush=True)
                     comm.Abort(1)
                 fold_reports.append(msg["report"])
                 all_predictions.extend(msg["predictions"])
@@ -651,8 +654,9 @@ def main(args, config):
         model = build_model(config, vision_device, llm_device)
         #pristine_state = snapshot_trainable_state(model)
 
-        key = vision_cache_key(config, data_files)
         if True: # create flag for caching vision model
+            cache_hosts = set(args.vision_cache_hosts.split(",")) if args.vision_cache_hosts else set()
+            key = vision_cache_key(config, data_files)
             model = build_model(config, vision_device, llm_device)
             build_vision_cache(model, full_dataset, args.vision_cache_dir, key)
 

@@ -320,3 +320,52 @@ def bridge_from_cache(model, vision_embeds, vision_cache, llm_device, text_dtype
     vision_atts = vision_cache.batch_atts(vision_embeds.shape[0], bparam.device)
     v2t_feats, v2t_atts = model.bridge(vision_embeds=vision_embeds, vision_atts=vision_atts)
     return v2t_feats.to(llm_device, dtype=text_dtype), v2t_atts.to(llm_device)
+
+def setup_node_vision_cache(model, full_dataset, local_comm, is_worker,
+                            cache_hosts, cache_dir, key, batch_size=8):
+    """COLLECTIVE over local_comm: call it on EVERY rank of the job, the
+    dispatcher included (pass model=None, is_worker=False there), at the
+    same point -- after build_model() on workers, before the work-queue
+    loop starts. Ranks that skip it would leave the others waiting.
+ 
+    On a host listed in cache_hosts:
+      - the first worker on that host builds the cache if it doesn't exist
+        yet (using its own, already-built model's ViT);
+      - the other workers on that host wait for it, then all of them open
+        the cache and drop their ViT.
+      Returns the VisionCache.
+    On any other host (or on the dispatcher): returns None, and the worker
+    keeps its ViT and the live (non-cached) path.
+    """
+    from mpi4py import MPI
+ 
+    host = MPI.Get_processor_name()
+    use_cache = is_worker and (host in cache_hosts or host.split(".")[0] in cache_hosts)
+ 
+    # Sub-communicator of only the cache-using workers on this host.
+    # Split is collective over local_comm, so every rank on the host calls it.
+    cache_comm = local_comm.Split(color=0 if use_cache else MPI.UNDEFINED,
+                                  key=local_comm.Get_rank())
+    print(f"### rank {MPI.COMM_WORLD.Get_rank()} on '{host}': "
+          f"vision cache {'ON' if use_cache else 'off'}", flush=True)
+    if not use_cache:
+        return None
+ 
+    ok, err = True, None
+    if cache_comm.Get_rank() == 0:
+        try:
+            build_vision_cache(model, full_dataset, cache_dir, key, batch_size=batch_size)
+        except Exception as e:
+            ok, err = False, repr(e)
+    # bcast instead of a plain Barrier: if the build fails, the waiting
+    # workers get the error and stop, instead of hanging forever.
+    ok, err = cache_comm.bcast((ok, err), root=0)
+    cache_comm.Free()
+    if not ok:
+        raise RuntimeError(f"vision cache build failed on {host}: {err}")
+ 
+    cache = VisionCache(cache_dir, key)
+    if len(cache) != len(full_dataset):
+        raise RuntimeError(f"vision cache has {len(cache)} items, dataset has {len(full_dataset)}")
+    drop_vision_encoder(model)
+    return cache
