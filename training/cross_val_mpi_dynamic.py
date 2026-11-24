@@ -4,8 +4,6 @@ import json
 import os
 import numpy as np
 
-import chime
-
 import time
 import datetime as dt
 from datetime import datetime
@@ -24,7 +22,6 @@ from training.utils import resolve_data_files, make_optimizer, VisionCache, visi
 from utils import write_jsonl, SummaryReport
 
 TAG_REQ, TAG_WORK, TAG_STOP, TAG_BUILT, TAG_GO = 1, 2, 3, 4, 5
-chime.theme('zelda')
 
 def report_built(comm, build_seconds, error=None):
     """ WORKER side: tell rank 0 this worker finished (or failed) building,
@@ -641,7 +638,6 @@ def main(args, config):
     
     folds, absl_best_loss, summary_report, error = comm.bcast((folds, absl_best_loss, summary_report, error), root=0)
     if error is not None:
-        chime.error()
         raise ValueError(f"Error in rank 0 during setup: {error}")
 
     ## Spawn workers for training
@@ -665,14 +661,12 @@ def main(args, config):
             msg = comm.recv(source=src, tag=TAG_REQ)
             if isinstance(msg, dict) and "error" in msg:
                 print(f"### worker {src} failed: {msg['error']}", flush=True)
-                chime.error()
                 comm.Abort(1)
 
             if msg is not None:
                 if not (isinstance(msg, dict) and "report" in msg and "predictions" in msg):
                     keys = list(msg) if isinstance(msg, dict) else None
                     print(f"### Unexpected message from rank {src}: type={type(msg).__name__}, keys={keys}", flush=True)
-                    chime.error()
                     comm.Abort(1)
                 fold_reports.append(msg["report"])
                 all_predictions.extend(msg["predictions"])
