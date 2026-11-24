@@ -692,7 +692,7 @@ def main(args, config):
         report_out = os.path.join(args.output_dir, f"cross_val_report_{timestamp}.json")
 
         for i in range(0, len(seconds_list)):
-            print(f"### Time taken to build by rank: {str(dt.timedelta(seconds=int(seconds_list[i])))} {rank_list[i]}")
+            print(f"### Time taken to build by rank: {str(dt.timedelta(seconds=int(seconds_list[i])))} {ranks_list[i]}")
 
         write_final_report(args.save_fold_predictions, summary_report, pred_out, report_out, fold_reports, all_predictions, taken_time)
 
