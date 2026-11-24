@@ -638,6 +638,7 @@ def main(args, config):
     
     folds, absl_best_loss, summary_report, error = comm.bcast((folds, absl_best_loss, summary_report, error), root=0)
     if error is not None:
+        print('\a')
         raise ValueError(f"Error in rank 0 during setup: {error}")
 
     ## Spawn workers for training
@@ -661,12 +662,14 @@ def main(args, config):
             msg = comm.recv(source=src, tag=TAG_REQ)
             if isinstance(msg, dict) and "error" in msg:
                 print(f"### worker {src} failed: {msg['error']}", flush=True)
+                print('\a')
                 comm.Abort(1)
 
             if msg is not None:
                 if not (isinstance(msg, dict) and "report" in msg and "predictions" in msg):
                     keys = list(msg) if isinstance(msg, dict) else None
                     print(f"### Unexpected message from rank {src}: type={type(msg).__name__}, keys={keys}", flush=True)
+                    print('\a')
                     comm.Abort(1)
                 fold_reports.append(msg["report"])
                 all_predictions.extend(msg["predictions"])
@@ -711,8 +714,7 @@ def main(args, config):
         while True:
             comm.send(result, dest=0, tag=TAG_REQ)
             result = None
-            #restore_trainable_state(model, pristine_state)
-
+            
             st = MPI.Status()
             absl_best_loss, fold_idx = comm.recv(source=0, tag=MPI.ANY_TAG, status=st)
             if st.Get_tag() == TAG_STOP:
