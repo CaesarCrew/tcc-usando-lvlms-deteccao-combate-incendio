@@ -678,7 +678,7 @@ def main(args, config):
             if pending:
                 comm.send((absl_best_loss, pending.pop(0)), dest=st.Get_source(), tag=TAG_WORK)
             else:
-                comm.send(None, dest=st.Get_source(), tag=TAG_STOP)
+                comm.send((None, None), dest=st.Get_source(), tag=TAG_STOP)
                 active -= 1
         
         taken_time = time.time() - global_start_time
