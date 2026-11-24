@@ -579,7 +579,7 @@ def main(args, config):
             summary_report = SummaryReport(
                 data_files,
                 seed,
-                n,
+                dataset_size,
                 cross_val=True,
                 mpi=True,
                 folds=args.k_folds,
