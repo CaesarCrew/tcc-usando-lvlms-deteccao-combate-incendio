@@ -410,7 +410,7 @@ class LynxBase(nn.Module):
 
         #input_ids = input_ids.to("cpu")
         text_embeds = self.embed_tokens(input_ids)
-        text_embeds = text_embeds.to("cuda")
+        text_embeds = text_embeds.to(llm_device)
 
         if vision_input is not None:
             vision_input = vision_input.to(vparam.device, dtype=vparam.dtype, non_blocking=True)
