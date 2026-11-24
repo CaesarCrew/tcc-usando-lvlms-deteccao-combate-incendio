@@ -509,7 +509,7 @@ def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, mode
             grad_accum_steps=config["grad_accum_steps"],
             vision_cache=None,
         )
-        train_time = time.time() - train_time
+        train_time_end = time.time() - train_time
         
         ## If it has the best loss, save this model
         if best_loss < absl_best_loss:
@@ -553,7 +553,7 @@ def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, mode
             grad_accum_steps=config["grad_accum_steps"],
             vision_cache=vision_cache,
         )
-        train_time = time.time() - train_time
+        train_time_end = time.time() - train_time
         
         ## If it has the best loss, save this model
         if best_loss < absl_best_loss:
@@ -576,7 +576,7 @@ def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, mode
         (fold_idx + 1),
         len(train_indices),
         len(val_indices),
-        train_time,
+        train_time_end,
         last_loss,
         metrics
     )
