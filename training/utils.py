@@ -368,5 +368,7 @@ def setup_node_vision_cache(model, full_dataset, local_comm, is_worker,
     cache = VisionCache(cache_dir, key)
     if len(cache) != len(full_dataset):
         raise RuntimeError(f"vision cache has {len(cache)} items, dataset has {len(full_dataset)}")
-    drop_vision_encoder(model)
+    
+    if model.vision_encoder != None:
+        drop_vision_encoder(model)
     return cache
