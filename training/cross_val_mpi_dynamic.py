@@ -694,6 +694,7 @@ def main(args, config):
             model = build_model(config, vision_device, llm_device)
             #pristine_state = snapshot_trainable_state(model)
             model_build_time = time.time() - model_build_time
+            print(f"### Model built, took {model_build_time} seconds", flush=True)
             error = None
         except Exception as e:
                 report_built(comm, model_build_time, str(e))
