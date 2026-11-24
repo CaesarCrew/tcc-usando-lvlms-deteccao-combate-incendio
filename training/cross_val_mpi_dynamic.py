@@ -563,17 +563,6 @@ def main(args, config):
 
     folds, absl_best_loss, summary_report, error = None, None, None, None
     if rank == 0:
-        summary_report = SummaryReport(
-            data_files,
-            seed,
-            n,
-            cross_val=True,
-            mpi=True,
-            folds=args.k_folds,
-            world_size=world_size,
-            num_threads=torch.get_num_threads()
-        )
-
         try:
             print("### Starting cross-validation with MPI", flush=True)
             print(f"### args: {args}", flush=True)
@@ -586,6 +575,17 @@ def main(args, config):
             torch.manual_seed(seed)
             np.random.seed(seed)
             cudnn.benchmark = True
+
+            summary_report = SummaryReport(
+                data_files,
+                seed,
+                n,
+                cross_val=True,
+                mpi=True,
+                folds=args.k_folds,
+                world_size=world_size,
+                num_threads=torch.get_num_threads()
+            )
 
             ## Checking if k-fold are feasible
             print("### Creating folds for cross-validation", flush=True)
