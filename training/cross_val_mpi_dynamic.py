@@ -21,7 +21,7 @@ from dataset.train_datasets import TrainFoldDataset, CachedTrainDataset, CachedE
 from training.utils import resolve_data_files, make_optimizer, drop_vision_encoder, VisionCache, vision_cache_key, build_vision_cache, bridge_from_cache, setup_node_vision_cache # snapshot_trainable_state, restore_trainable_state
 from utils import write_jsonl, SummaryReport
 
-TAG_REQ, TAG_WORK, TAG_STOP, TAG_BUILT = 1, 2, 3, 4
+TAG_REQ, TAG_WORK, TAG_STOP, TAG_BUILT, TAG_GO = 1, 2, 3, 4, 5
 
 def report_built(comm, build_seconds, error=None):
     """ WORKER side: tell rank 0 this worker finished (or failed) building,
