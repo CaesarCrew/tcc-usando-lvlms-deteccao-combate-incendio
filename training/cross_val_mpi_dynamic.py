@@ -648,6 +648,7 @@ def main(args, config):
         active = world_size - 1
 
         if True: # create flag for caching vision model
+            wait_until_all_built(comm)
             setup_node_vision_cache(None, full_dataset, local_comm, is_worker=False,
                             cache_hosts=cache_hosts, cache_dir=args.vision_cache_dir, key=key)
 
