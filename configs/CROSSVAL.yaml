@@ -13,9 +13,9 @@
 # limitations under the License.
 
 ## Data
-image_rdir: "./images/"
+image_rdir: "/content/drive/MyDrive/Colab Notebooks/paralelo/tcc-usando-lvlms-deteccao-combate-incendio/images"
 
-train_files: [ "./data/Kaggle_Training_120.jsonl" ]
+train_files: [ "/content/drive/MyDrive/Colab Notebooks/paralelo/tcc-usando-lvlms-deteccao-combate-incendio/data/Kaggle_Test_Fast.jsonl" ]
 
 # change this prompt for different task
 prompt: "User: {question}\nBot:"
@@ -33,8 +33,8 @@ add_frame_pos: True
 
 LLM: 'vicuna-7b'
 use_flash_attn: False
-use_adapter: False
-adapter_freq: 4
+use_adapter: True
+adapter_freq: 2
 mmap_llm : False
 
 bridge: 'resampler'
@@ -44,14 +44,68 @@ num_bridge_tokens: 32
 ## General
 use_left_pad: True
 lower_text: True
+# The EVA-ViT pretrained loader allows missing keys here; the full Lynx
+# checkpoint completes loading. cross_val.py freezes ViT BEFORE training.
 freeze_vit: False
 freeze_llm: True
 image_res: 224
 image_mean: [ 0.48145466, 0.4578275, 0.40821073 ]
 image_std: [ 0.26862954, 0.26130258, 0.27577711 ]
 
+
+# V11: checkpoint/architecture validation
+# Checkpoint contains trained adapter weights. Do not silently ignore them.
+# The checkpoint log shows 16 adapter modules across 32 layers (0,2,...,30),
+# so adapter_freq=2 is the matching configuration. Strict matching remains on.
+strict_checkpoint_adapters: true
+check_checkpoint_finite: true
+
+# V10: numerical-safe bridge training. ViT and LLM are frozen; only the bridge
+# (and optionally adapters with --train_adapters) are updated.
+crossval_vision_precision: float32
+crossval_bridge_precision: float32
+crossval_loss_mode: stable
+label_smoothing: 0.0
+
+# V10: memory-aware CUDA placement for a ~14.56 GiB Colab GPU
+gpu_memory_policy: auto
+gpu_memory_reserve_gib: 2.0
+gpu_vision_dtype: float32
+gpu_bridge_dtype: float32
+gpu_llm_dtype: float16
+cpu_offload_dtype: float32
+cpu_sequential_llm: true
+gpu_sequential_llm: true  # CPU-stage the model even when --llm_device gpu
+llm_zero_copy_load: true  # frozen Vicuna, before optimizer creation
+checkpoint_zero_copy_load: true  # final finetune weights, before optimizer
+skip_base_llm_when_full_finetune: true  # requires 100% shape/key coverage
+crossval_gradient_checkpointing: true  # recompute layer activations in backward
+gpu_sequential_checkpoint: true
+cpu_sequential_checkpoint: true
+checkpoint_mmap: true
+checkpoint_weights_only: true
+
+# V13: detect corrupted base LLM weights before training, not only adapters.
+# V18: Disabled for normal folds to avoid paging 25 GiB of frozen weights
+# into RAM just to check finiteness each time. Enable for diagnostics.
+crossval_check_base_llm_finite: false
+# Compute the vocabulary projection only at supervised positions.
+# Reduces memory, and checks hidden states BEFORE the lm_head layer.
+crossval_only_supervised_logits: true
+# On failure, replay that batch once without gradients and report the FIRST
+# failing LLaMA layer/submodule; never silently substitute numerical values.
+crossval_llm_trace_on_error: true
+
+# V12: RoPE position safety is always enabled in lynx.py.
+# Attention masks are validated (0=padding, any positive value=attend) and
+# normalized to binary before position_ids are constructed. No new YAML
+# flag is needed; preserve original experimental decoding settings.
+
+# Safer evaluation diagnostic: never silently repair invalid checkpoint logits.
+generation_invalid_logits_policy: strict
+
 ## Testing
-checkpoint: "./data/finetune_lynx.pt"
+checkpoint: "/content/drive/MyDrive/Colab Notebooks/paralelo/tcc-usando-lvlms-deteccao-combate-incendio/data/finetune_lynx.pt"
 
 ## infer params
 max_input_tokens: 40
@@ -64,3 +118,34 @@ top_k: 3
 no_repeat_ngram_size: -1
 apply_lemmatizer: False
 use_nucleus_sampling: True
+
+# V14: resampler output latents have a fixed number of active queries.
+# Lynx now builds their mask as all-ones from the latent tensor shape,
+# rather than trusting the bridge's occasional non-binary mask values.
+# Metrics fall back to calculate_metrics.py's existing empty-input behavior
+# when its first-token parser cannot split a model response.
+
+# V15: replace only the legacy Lynx LLaMA handwritten attention softmax with
+# PyTorch scaled_dot_product_attention. Preserves rotary embeddings,
+# checkpoint weights, adapters and tuple KV-cache generation.
+# Use 'legacy' only for controlled diagnostic comparison (may reproduce NaN).
+
+# V16: Convert legacy 4-D additive padding+causal masks to boolean SDPA
+# keep-masks; verify q/k/v tensors before attention. Preserve original
+# checkpoint, adapter, numeric-loss and offloading options.
+legacy_llama_attention_backend: sdpa
+legacy_llama_attention_check_qkv: true
+
+# V17: prevent NaNs generated before SDPA. Older LLaMA has persistent RoPE
+# frequency buffers not covered by parameter-only finite checks. Rebuild ONLY
+# mathematically-defined RoPE buffers if invalid; learned weights untouched.
+legacy_llama_repair_rope_buffers: true
+# RMSNorm uses a scale-before-square formulation to avoid variance overflow.
+legacy_llama_stable_rmsnorm: true
+
+
+# V18: CPU RAM recommendations. For smallest training footprint, use
+# --batch_size_train 1 --grad_accum_steps 2 --num_workers 0.
+# Defaults in cross_val.py now use those values; CLI flags can override them.
+# Keep cpu_offload_dtype: float32 for numerical compatibility with custom LLaMA.
+# Mmap storage can be file-backed; CPU RSS / cgroup cache are logged per fold.
