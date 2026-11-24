@@ -404,19 +404,27 @@ class LynxBase(nn.Module):
                  repetition_penalty=1.0, no_repeat_ngram_size=3,
                  length_penalty=1.0, num_return_sequences=1, temperature=1, apply_lemmatizer=False):
         
+        vparam = next(self.vision_encoder.parameters())
+        bparam = next(self.bridge.parameters())
+        llm_device = next(self.LLM.parameters()).device
+
         #input_ids = input_ids.to("cpu")
         text_embeds = self.embed_tokens(input_ids)
         text_embeds = text_embeds.to("cuda")
 
         if vision_input is not None:
-            vision_embeds, vision_atts = self.get_vision_embeds(vision_input)
-            v2t_feats, v2t_atts = self.bridge(vision_embeds=vision_embeds, vision_atts=vision_atts)
+            vision_input = vision_input.to(vparam.device, dtype=vparam.dtype, non_blocking=True)
+            input_ids = input_ids[:, -128:].to(llm_device)
+            input_atts = input_atts[:, -128:].to(llm_device)
 
-            v2t_feats = v2t_feats.to("cuda", dtype=text_embeds.dtype)
-            v2t_atts = v2t_atts.to("cuda")
+            vision_embeds, vision_atts = self.get_vision_embeds(vision_input)
+
+            v2t_feats, v2t_atts = self.bridge(vision_embeds=vision_embeds.to(bparam.dtype), vision_atts=vision_atts)
+            v2t_feats = v2t_feats.to(llm_device, dtype=text_embeds.dtype)
+            v2t_atts = v2t_atts.to(llm_device)
             
-            inputs_embeds = torch.cat([v2t_feats, text_embeds], dim=1).to("cpu")
-            attention_mask = torch.cat([v2t_atts, input_atts], dim=1).to("cpu")
+            inputs_embeds = torch.cat([v2t_feats, text_embeds], dim=1).to(llm_device)
+            attention_mask = torch.cat([v2t_atts, input_atts], dim=1).to(llm_device)
 
         else:
             inputs_embeds = text_embeds

@@ -291,17 +291,11 @@ def evaluate_one_fold(model, base_dataset, val_indices, device, config):
         drop_last=False,
     )
 
-    vision_dtype = next(model.vision_encoder.parameters()).dtype
-    llm_device = next(model.LLM.parameters()).device
-
     preds = []
 
     model.eval()
     with torch.inference_mode():
         for idx, vision_input, input_ids, input_atts in val_loader:
-            vision_input = vision_input.to(llm_device, dtype=vision_dtype, non_blocking=True)
-            input_ids = input_ids[:, -128:].to(llm_device)
-            input_atts = input_atts[:, -128:].to(llm_device, non_blocking=True)
 
             text_outputs = model.generate(
                 vision_input=vision_input,
@@ -424,7 +418,7 @@ def train_one_epoch(model, optimizer, train_loader, device, epoch, epochs, grad_
 
             n_steps += 1
         
-        if ((step + 1) % 30 == 0 or (step + 1) == steps) and step != 0:
+        if (step % 30 == 0 or (step + 1) == steps) and step != 0:
             avg = running_loss / step
             print(f"### Train epoch {epoch}/{epochs}, step {step}/{steps}, avg_loss={running_loss:.4f}", flush=True)
     
@@ -445,7 +439,7 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
     start_training = time.time()
 
     ## Run all the epochs for this fold
-    for epoch in range(1, config["train_epochs"] + 1):
+    for epoch in range(1, config["train_epochs"]):
         print(f"### Starting epoch", flush=True)
         last_loss = train_one_epoch(
             model,
@@ -471,7 +465,7 @@ def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, mode
 
     using_gpu = device.type == "cuda"
     
-    if use_cache or vision_cache==None: # create flag for caching vision model
+    if not use_cache or vision_cache==None: # create flag for caching vision model
         train_dataset_loader_time = time.time()
         train_dataset = TrainFoldDataset(
             base_dataset=full_dataset,

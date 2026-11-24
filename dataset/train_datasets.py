@@ -7,14 +7,13 @@ import numpy as np
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-import hashlib
 
 import torch
 from torch.utils.data import Dataset
 
 from PIL import Image
 
-from dataset.utils import sample_frame_ids
+from dataset.utils import sample_frame_ids, _cache_path_for
 from dataset import get_image_transform, get_video_transform
 from dataset.tokenizers import build_tokenizer
 
@@ -427,12 +426,6 @@ class TrainFoldDataset(Dataset):
 
         input_ids_pad, input_atts_pad = self._pad_sequences(input_ids, labels)
         return idx, vision_input, input_ids_pad, input_atts_pad
-
-def _cache_path_for(train_files, cache_dir):
-    paths = [train_files] if isinstance(train_files, str) else list(train_files)
-    digest = hashlib.sha1("|".join(sorted(paths)).encode()).hexdigest()[:16]
-    os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, f"annotations_{digest}.parquet")
 
 class CachedTrainDataset(LynxTrainDataset):
     """Same as LynxTrainDataset, but item[1] is the cached vision embedding

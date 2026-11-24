@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import json
+import hashlib
 import numpy as np
 
 
@@ -43,6 +45,12 @@ def sample_frame_ids(num_frames: int, num_segments: int, training: bool):
                 out_indices[idx] = left
 
     return [int(i) for i in out_indices]
+
+def _cache_path_for(train_files, cache_dir):
+    paths = [train_files] if isinstance(train_files, str) else list(train_files)
+    digest = hashlib.sha1("|".join(sorted(paths)).encode()).hexdigest()[:16]
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f"annotations_{digest}.parquet")
 
 def write_jsonl(result: list, wpath: str):
     if wpath.startswith('hdfs'):
