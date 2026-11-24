@@ -5,6 +5,7 @@ predictions/
 ann_cache/
 data/vicuna-7b/
 cv_outputs/
+vit_cache/
 
 data/eva_vit_g.pth
 data/finetune_lynx.pt
