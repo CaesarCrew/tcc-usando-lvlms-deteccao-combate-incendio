@@ -21,7 +21,41 @@ from dataset.train_datasets import TrainFoldDataset, CachedTrainDataset, CachedE
 from training.utils import resolve_data_files, make_optimizer, drop_vision_encoder, VisionCache, vision_cache_key, build_vision_cache, bridge_from_cache, setup_node_vision_cache # snapshot_trainable_state, restore_trainable_state
 from utils import write_jsonl, SummaryReport
 
-TAG_REQ, TAG_WORK, TAG_STOP = 1, 2, 3
+TAG_REQ, TAG_WORK, TAG_STOP, TAG_BUILT = 1, 2, 3, 4
+
+def report_built(comm, build_seconds, error=None):
+    """ WORKER side: tell rank 0 this worker finished (or failed) building,
+        then block until rank 0 says every worker is done.
+    """
+    comm.send(
+        {"rank": comm.Get_rank(), "host": MPI.Get_processor_name(),
+         "seconds": build_seconds, "error": error},
+        dest=0, tag=TAG_BUILT,
+    )
+    go = comm.recv(source=0, tag=TAG_GO)
+    if not go:
+        raise RuntimeError("Another worker failed to build its model; stopping.")
+
+def wait_until_all_built(comm):
+    """ DISPATCHER (rank 0) side: collect a 'built' message from every worker,
+        print who took how long, then release all workers at once.
+    """
+    n_workers = comm.Get_size() - 1
+    reports, start = [], time.time()
+    while len(reports) < n_workers:
+        msg = comm.recv(source=MPI.ANY_SOURCE, tag=TAG_BUILT)
+        reports.append(msg)
+        status = "FAILED: " + msg["error"] if msg["error"] else f"{msg['seconds']:.0f}s"
+        print(f"### build done {len(reports)}/{n_workers}: rank {msg['rank']} "
+              f"on {msg['host']} ({status})", flush=True)
+ 
+    all_ok = all(r["error"] is None for r in reports)
+    for r in range(1, comm.Get_size()):
+        comm.send(all_ok, dest=r, tag=TAG_GO)
+    print(f"### all models built; last one finished {time.time() - start:.0f}s "
+          f"after the first report", flush=True)
+    if not all_ok:
+        raise RuntimeError("At least one worker failed to build its model.")
 
 def forward_train_loss(model, batch, device):
     _, vision_input, input_ids, input_atts, labels = batch
@@ -655,13 +689,17 @@ def main(args, config):
     ## Worker code
     else:
         vision_device, llm_device = pick_worker_devices(worker_idx)
-        model = build_model(config, vision_device, llm_device)
-        #pristine_state = snapshot_trainable_state(model)
-
-        if True: # create flag for caching vision model
-            vision_cache = VisionCache(args.vision_cache_dir, key)
-            assert len(vision_cache) == dataset_size
-            drop_vision_encoder(model)
+        try:
+            model_build_time = time.time()
+            model = build_model(config, vision_device, llm_device)
+            #pristine_state = snapshot_trainable_state(model)
+            model_build_time = time.time() - model_build_time
+            error = None
+        except Exception as e:
+                report_built(comm, model_build_time, str(e))
+        
+        if error == None:
+            report_built(comm, model_build_time)
 
         result = None
         while True:
