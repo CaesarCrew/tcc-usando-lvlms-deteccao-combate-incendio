@@ -227,7 +227,7 @@ def make_stratified_k_folds(annotations, k, seed=123):
 
     return folds
 
-def write_final_report(save_fold_predictions, pred_out, report_out, fold_reports, all_predictions, taken_time):
+def write_final_report(save_fold_predictions, summary_report, pred_out, report_out, fold_reports, all_predictions, taken_time):
 
     if save_fold_predictions:
         write_jsonl(all_predictions, pred_out, 'w')
@@ -430,7 +430,7 @@ def train_one_fold(model, train_loader, device, epochs, trainable_params, lr, we
 
     return last_loss, best_loss, end_training
 
-def run_one_fold(config, device, absl_best_loss, model, full_dataset, fold_idx, epochs, folds, rank, vision_cache=None):
+def run_one_fold(summary_report, config, device, absl_best_loss, model, full_dataset, fold_idx, epochs, folds, rank, vision_cache=None):
     ## Generating indices for training/validation split
     val_indices = folds[fold_idx]
     train_indices = sorted(list(set(range(len(full_dataset))) - set(val_indices)))
@@ -561,8 +561,19 @@ def main(args, config):
     full_dataset = create_train_dataset(config_for_data)
     dataset_size = len(full_dataset)
 
-    folds, absl_best_loss, error = None, None, None
+    folds, absl_best_loss, summary_report, error = None, None, None, None
     if rank == 0:
+        summary_report = SummaryReport(
+            data_files,
+            seed,
+            n,
+            cross_val=True,
+            mpi=True,
+            folds=args.k_folds,
+            world_size=world_size,
+            num_threads=torch.get_num_threads()
+        )
+
         try:
             print("### Starting cross-validation with MPI", flush=True)
             print(f"### args: {args}", flush=True)
@@ -586,9 +597,9 @@ def main(args, config):
 
             error = None
         except Exception as e:
-            folds, absl_best_loss, error = None, None, str(e)
+            folds, absl_best_loss, summary_report, error = None, None, None str(e)
     
-    folds, absl_best_loss, error = comm.bcast((folds, absl_best_loss, error), root=0)
+    folds, absl_best_loss, summary_report, error = comm.bcast((folds, absl_best_loss, summary_report, error), root=0)
     if error is not None:
         raise ValueError(f"Error in rank 0 during setup: {error}")
 
@@ -632,7 +643,7 @@ def main(args, config):
         pred_out = os.path.join(args.output_dir, f"cross_val_predictions_{timestamp}.jsonl")
         report_out = os.path.join(args.output_dir, f"cross_val_report_{timestamp}.json")
 
-        write_final_report(args.save_fold_predictions, pred_out, report_out, fold_reports, all_predictions, taken_time)
+        write_final_report(args.save_fold_predictions, summary_report, pred_out, report_out, fold_reports, all_predictions, taken_time)
 
     ## Worker code
     else:
@@ -662,7 +673,7 @@ def main(args, config):
                 break
             # If we continue:
             try:
-                result = run_one_fold(config, vision_device, absl_best_loss, model, full_dataset, fold_idx, args.epochs, folds, rank, vision_cache)
+                result = run_one_fold(summary_report, config, vision_device, absl_best_loss, model, full_dataset, fold_idx, args.epochs, folds, rank, vision_cache)
                 if result["best_loss"] < absl_best_loss:
                     absl_best_loss = result["best_loss"]
                 
