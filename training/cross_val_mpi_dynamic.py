@@ -56,6 +56,10 @@ def wait_until_all_built(comm):
           f"after the first report", flush=True)
     if not all_ok:
         raise RuntimeError("At least one worker failed to build its model.")
+    
+    seconds_list = [msg["seconds"] for msg in reports]
+    ranks_list = [msg["rank"] for msg in reports]
+    return seconds_list, ranks_list
 
 def forward_train_loss(model, batch, device):
     _, vision_input, input_ids, input_atts, labels = batch
@@ -648,7 +652,7 @@ def main(args, config):
         active = world_size - 1
 
         if True: # create flag for caching vision model
-            wait_until_all_built(comm)
+            seconds_list, ranks_list = wait_until_all_built(comm)
             setup_node_vision_cache(None, full_dataset, local_comm, is_worker=False,
                             cache_hosts=cache_hosts, cache_dir=args.vision_cache_dir, key=key)
 
@@ -686,6 +690,9 @@ def main(args, config):
         timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         pred_out = os.path.join(args.output_dir, f"cross_val_predictions_{timestamp}.jsonl")
         report_out = os.path.join(args.output_dir, f"cross_val_report_{timestamp}.json")
+
+        for i in range(0, len(seconds_list)):
+            print(f"### Time taken to build by rank: {str(dt.timedelta(seconds=int(seconds_list[i])))} {rank_list[i]}")
 
         write_final_report(args.save_fold_predictions, summary_report, pred_out, report_out, fold_reports, all_predictions, taken_time)
 
