@@ -698,10 +698,12 @@ def main(args, config):
             print(f"### Model built, took {model_build_time} seconds", flush=True)
             error = None
         except Exception as e:
-                report_built(comm, model_build_time, str(e))
+                model, model_build_time, error = None, None, repr(e)
         
         if error == None:
-            report_built(comm, model_build_time)
+            report_built(comm, model_build_time, error)
+            vision_cache = setup_node_vision_cache(None, full_dataset, local_comm, is_worker=True,
+                            cache_hosts=cache_hosts, cache_dir=args.vision_cache_dir, key=key)
 
         result = None
         while True:
