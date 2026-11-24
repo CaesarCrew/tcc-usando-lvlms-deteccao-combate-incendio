@@ -509,7 +509,7 @@ def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, mode
             lr=config["learning_rate"],
             weight_decay=config["weight_decay"],
             grad_accum_steps=config["grad_accum_steps"],
-            vision_cache=vision_cache,
+            vision_cache=None,
         )
         train_time = time.time() - train_time
         
