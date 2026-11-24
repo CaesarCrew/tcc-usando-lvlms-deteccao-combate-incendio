@@ -597,7 +597,7 @@ def main(args, config):
 
             error = None
         except Exception as e:
-            folds, absl_best_loss, summary_report, error = None, None, None str(e)
+            folds, absl_best_loss, summary_report, error = None, None, None, str(e)
     
     folds, absl_best_loss, summary_report, error = comm.bcast((folds, absl_best_loss, summary_report, error), root=0)
     if error is not None:
