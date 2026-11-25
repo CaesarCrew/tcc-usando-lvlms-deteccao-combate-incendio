@@ -582,7 +582,15 @@ def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, mode
     )
     print(fold_report_line, flush=True)
 
-    return {"best_loss": best_loss, "report": fold_report_line, "predictions":preds}
+    fold_report = {
+            "fold": fold_idx+1,
+            "n_train": len(train_indices),
+            "n_val": len(val_indices),
+            "train_time_sec": train_time,
+            "train_history": train_history,
+            "metrics": metrics,
+    }
+    return {"best_loss": best_loss, "report": fold_report, "predictions":preds}
 
 def main(args, config):
     comm, rank, world_size, worker_idx, local_comm = setup_mpi()    
