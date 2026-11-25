@@ -2,6 +2,7 @@ import copy
 import json
 
 import os
+import random
 import numpy as np
 
 import time
@@ -283,6 +284,7 @@ def write_final_report(save_fold_predictions, summary_report, pred_out, report_o
     print(f"### Report saved to: {report_out}", flush=True)
     print(f"### {short_report}")
 
+@torch.no_grad()
 def evaluate_one_fold(model, base_dataset, val_indices, device, config):
     val_subset = Subset(base_dataset, val_indices)
     val_loader = DataLoader(
@@ -509,7 +511,7 @@ def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, mode
             grad_accum_steps=config["grad_accum_steps"],
             vision_cache=None,
         )
-        train_time_end = time.time() - train_time
+        train_time = time.time() - train_time
         
         ## If it has the best loss, save this model
         if best_loss < absl_best_loss:
@@ -553,7 +555,7 @@ def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, mode
             grad_accum_steps=config["grad_accum_steps"],
             vision_cache=vision_cache,
         )
-        train_time_end = time.time() - train_time
+        train_time = time.time() - train_time
         
         ## If it has the best loss, save this model
         if best_loss < absl_best_loss:
@@ -576,7 +578,7 @@ def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, mode
         (fold_idx + 1),
         len(train_indices),
         len(val_indices),
-        train_time_end,
+        train_time,
         last_loss,
         metrics
     )
@@ -587,7 +589,6 @@ def run_one_fold(use_cache, summary_report, config, device, absl_best_loss, mode
             "n_train": len(train_indices),
             "n_val": len(val_indices),
             "train_time_sec": train_time,
-            "train_history": train_history,
             "metrics": metrics,
     }
     return {"best_loss": best_loss, "report": fold_report, "predictions":preds}
@@ -623,6 +624,7 @@ def main(args, config):
             seed = args.seed + rank
             torch.manual_seed(seed)
             np.random.seed(seed)
+            random.seed(seed)
             cudnn.benchmark = True
 
             summary_report = SummaryReport(
@@ -700,7 +702,7 @@ def main(args, config):
         report_out = os.path.join(args.output_dir, f"cross_val_report_{timestamp}.json")
 
         for i in range(0, len(seconds_list)):
-            print(f"### Time taken to build by rank: {str(dt.timedelta(seconds=int(seconds_list[i])))} {ranks_list[i]}")
+            print(f"### Time taken to build by rank: {str(dt.timedelta(seconds=int(seconds_list[i])))} {ranks_list[i]}", flush=True)
 
         write_final_report(args.save_fold_predictions, summary_report, pred_out, report_out, fold_reports, all_predictions, taken_time)
 
