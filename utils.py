@@ -207,7 +207,7 @@ class SummaryReport:
     def full(self, output_file, metrics, elapsed_s, dataset_time=0, process_time=0, rank_times=None):
         # Remember to add peak cpu or gpu usage
         """Full report: header, metrics, total time, then each rank's time."""
-        report = self._header(output_file, elapsed_s, dataset_time, process_time, rank_times) + self._metrics_block(metrics)
+        report = self._header(output_file, elapsed_s, dataset_time, process_time, rank_times)
         return report
 
     def short(self, elapsed_s, aggregate=None, metrics=None):

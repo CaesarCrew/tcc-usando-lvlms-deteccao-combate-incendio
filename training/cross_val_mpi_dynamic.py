@@ -760,7 +760,7 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--llm_device", type=str, choices=["cpu", "cuda"], default="cpu")
-    parser.add_argument("--seed", type=int, default=43)
+    parser.add_argument("--seed", type=int, default=12)
 
     parser.add_argument("--data_files", type=str, nargs="*", default=None)
     parser.add_argument("--k_folds", type=int, default=5, required=True)
