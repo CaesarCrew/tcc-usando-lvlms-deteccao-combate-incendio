@@ -33,7 +33,7 @@ add_frame_pos: True
 
 LLM: 'vicuna-7b'
 use_flash_attn: False
-use_adapter: False
+use_adapter: True
 adapter_freq: 4
 mmap_llm : True
 
