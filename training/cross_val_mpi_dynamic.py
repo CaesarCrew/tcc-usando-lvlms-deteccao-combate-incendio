@@ -274,7 +274,7 @@ def write_final_report(save_fold_predictions, summary_report, pred_out, report_o
 
     aggregate = summary_report.aggregate(fold_reports)
     full_report = summary_report.full(report_out, fold_reports, taken_time)
-    short_report = summary_report.short(time_taken, aggregate)
+    short_report = summary_report.short(taken_time, aggregate)
 
     write_json(full_report, report_out)
     write_txt_doc(short, "stats.txt")
